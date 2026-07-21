@@ -1,0 +1,37 @@
+appId: com.naiagent.app
+productName: NAI Agent
+copyright: Copyright © 2026 NAI Agent
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist-electron/main/main.cjs
+  - dist-electron/main/**/*.js
+  - dist-electron/preload/preload.js
+  - dist-electron/preload/**/*.js
+  - dist/**/*
+extraResources:
+  - from: electron/db/schema
+    to: migrations
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**/*'
+  - '**/node_modules/sqlite-vec/**/*'
+  - '**/node_modules/sqlite-vec-darwin-arm64/**/*'
+  - '**/node_modules/sqlite-vec-darwin-x64/**/*'
+  - '**/node_modules/sqlite-vec-linux-x64/**/*'
+  - '**/node_modules/sqlite-vec-win32-x64/**/*'
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+    - portable
+linux:
+  target:
+    - AppImage
+    - deb
+npmRebuild: true
+buildDependenciesFromSource: false
