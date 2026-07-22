@@ -80,7 +80,7 @@ import {
   getPendingReviewSession,
 } from '../services/facts/pendingFactReviewService.ts';
 import {listFacts} from '../services/facts/factRepository.ts';
-import {generateArticle} from '../services/article/articleGenerationService.ts';
+import {generateArticle, generateRankingArticleEntry} from '../services/article/articleGenerationService.ts';
 import {reviewClaims} from '../services/article/claimReviewService.ts';
 import {reviewGeo} from '../services/article/geoReviewService.ts';
 import {generateQuestions, selectQuestion, rejectQuestion, listQuestions} from '../services/article/questionPoolService.ts';
@@ -730,8 +730,12 @@ export function registerIpcHandlers() {
   });
 
   createHandler('article:generateRanking', async (params) => {
-    ArticleGenerateRankingSchema.parse(params);
-    throw new Error('article:generateRanking is not implemented');
+    const validated = ArticleGenerateRankingSchema.parse(params);
+    return generateRankingArticleEntry({
+      projectId: validated.projectId,
+      competitors: validated.competitors,
+      targetQuestion: validated.targetQuestion,
+    });
   });
 
   // 窗口

@@ -9,7 +9,10 @@ export type View =
   | 'kbCreate'
   | 'factReview'
   | 'enterpriseProfile'
-  | 'articleGeneration';
+  | 'questionPool'
+  | 'sourceDiscovery'
+  | 'articleGeneration'
+  | 'humanReview';
 
 // 通用状态枚举
 export type TaskStatus =

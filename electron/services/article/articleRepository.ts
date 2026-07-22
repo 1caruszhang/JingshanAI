@@ -262,3 +262,43 @@ export function countConfirmedFacts(projectId: number): number {
     .get(projectId) as {cnt: number} | undefined;
   return row?.cnt ?? 0;
 }
+
+export interface RankingEntryInput {
+  company: string;
+  position: number;
+  reasons: string[];
+  sourceFactIds: number[];
+  reasoning_text: string;
+}
+
+export function createRankingArticleItems(
+  artifactId: number,
+  projectId: number,
+  entries: RankingEntryInput[],
+): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const insert = db.prepare(
+    `INSERT INTO ranking_article_items
+     (artifact_id, project_id, rank, company_name, is_target_company,
+      recommendation_reason, suitable_for_json, core_strengths_json,
+      evidence_refs_json, risk_notes_json, created_at)
+     VALUES (?, ?, ?, ?, 0, ?, NULL, NULL, ?, NULL, ?)`,
+  );
+
+  const insertAll = db.transaction((items: RankingEntryInput[]) => {
+    for (const entry of items) {
+      insert.run(
+        artifactId,
+        projectId,
+        entry.position,
+        entry.company,
+        entry.reasoning_text,
+        entry.sourceFactIds.length > 0 ? JSON.stringify(entry.sourceFactIds) : null,
+        now,
+      );
+    }
+  });
+
+  insertAll(entries);
+}

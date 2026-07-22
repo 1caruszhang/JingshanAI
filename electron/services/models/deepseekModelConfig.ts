@@ -118,16 +118,29 @@ export const DEEPSEEK_MODEL_ROUTES: Record<string, ModelRoute> = {
     maxRetries: parseInt(env('DEEPSEEK_MAX_RETRIES', '1')!, 10),
   },
 
-  title_generation: {
-    role: 'title_generation',
+  ranking_theme_selection: {
+    role: 'ranking_theme_selection',
     provider: 'deepseek',
     apiMode: 'chat_completions',
     model: deepSeekModel('DEEPSEEK_PRO_MODEL', 'deepseek-v4-pro'),
     stream: false,
-    skill: 'title-generation',
-    promptVersion: 'title-generation.prompt-contract.v1',
+    skill: 'ranking-theme-selection',
+    promptVersion: 'ranking-theme-selection.prompt-contract.v1',
     responseFormat: 'json_object',
     timeoutMs: parseInt(env('DEEPSEEK_TIMEOUT_MS', '90000')!, 10),
+    maxRetries: parseInt(env('DEEPSEEK_MAX_RETRIES', '1')!, 10),
+  },
+
+  ranking_article_generation: {
+    role: 'ranking_article_generation',
+    provider: 'deepseek',
+    apiMode: 'chat_completions',
+    model: deepSeekModel('DEEPSEEK_PRO_MODEL', 'deepseek-v4-pro'),
+    stream: false,
+    skill: 'ranking-article-generation',
+    promptVersion: 'ranking-article-generation.prompt-contract.v1',
+    responseFormat: 'json_object',
+    timeoutMs: parseInt(env('DEEPSEEK_TIMEOUT_MS', '180000')!, 10),
     maxRetries: parseInt(env('DEEPSEEK_MAX_RETRIES', '1')!, 10),
   },
 };

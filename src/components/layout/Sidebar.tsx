@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings, FileText, BookOpen, Globe, LogOut, ChevronRight, Plus, ChevronDown, X, PanelLeftClose, Trash2, Building2, ClipboardCheck } from 'lucide-react';
+import { LayoutDashboard, Settings, FileText, BookOpen, Globe, LogOut, ChevronRight, Plus, ChevronDown, X, PanelLeftClose, Trash2, Building2, ClipboardCheck, HelpCircle, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/lib/toast';
@@ -32,6 +32,12 @@ const mainMenu: { id: View; icon: React.ComponentType<{ className?: string }>; l
 const factsMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'enterpriseProfile' | 'factReview' }[] = [
   { id: 'enterpriseProfile', icon: Building2, labelKey: 'enterpriseProfile' },
   { id: 'factReview', icon: ClipboardCheck, labelKey: 'factReview' },
+];
+
+const contentMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'questionPool' | 'articleGeneration' | 'drafts' }[] = [
+  { id: 'questionPool', icon: HelpCircle, labelKey: 'questionPool' },
+  { id: 'articleGeneration', icon: Sparkles, labelKey: 'articleGeneration' },
+  { id: 'drafts', icon: FileText, labelKey: 'drafts' },
 ];
 
 export default function Sidebar({ activeView, onNavigate, collapsed, onToggleCollapse, mobileOpen, onCloseMobile }: SidebarProps) {
@@ -231,6 +237,43 @@ export default function Sidebar({ activeView, onNavigate, collapsed, onToggleCol
             </h3>
             <nav className="flex flex-col gap-1">
               {factsMenu.map(({ id, icon: Icon, labelKey }) => (
+                <button
+                  key={id}
+                  onClick={() => handleNavigate(id)}
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2.5 w-full rounded-2xl font-bold text-[14px] transition-colors',
+                    activeView === id
+                      ? cls(
+                          'bg-white shadow-xs border border-gray-200/50 text-gray-900',
+                          'bg-[#1c1c1f] border border-white/5 text-white'
+                        )
+                      : cls(
+                          'border border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50',
+                          'border border-transparent text-gray-400 hover:text-white hover:bg-white/5'
+                        )
+                  )}
+                >
+                  <Icon className="w-[18px] h-[18px] shrink-0" />
+                  <span className={cn('truncate text-left flex-1', collapsed ? 'xl:hidden' : 'block')}>
+                    {t[labelKey]}
+                  </span>
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Content production menu */}
+          <div className="shrink-0">
+            <h3
+              className={cn(
+                'text-[12px] font-medium mb-4 px-4 transition-colors duration-300 text-gray-500',
+                collapsed ? 'xl:hidden' : ''
+              )}
+            >
+              {t.contentSection ?? '内容生产'}
+            </h3>
+            <nav className="flex flex-col gap-1">
+              {contentMenu.map(({ id, icon: Icon, labelKey }) => (
                 <button
                   key={id}
                   onClick={() => handleNavigate(id)}

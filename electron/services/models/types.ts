@@ -23,6 +23,8 @@ export type ModelRole =
   | 'agent_runtime'
   | 'question_generation'
   | 'title_generation'
+  | 'ranking_theme_selection'
+  | 'ranking_article_generation'
   | 'chat';
 
 export type ModelRoute = {

@@ -244,6 +244,21 @@ export const i18n = {
     articleStatusApproved: '已通过',
     articleStatusRejected: '已拒绝',
 
+    // Human Review
+    humanReview: '人工审核',
+    humanReviewTitle: '文章审核',
+    humanReviewBack: '返回草稿列表',
+    humanReviewContent: '文章内容',
+    humanReviewClaims: '断言列表',
+    humanReviewReviews: '审核记录',
+    humanReviewSave: '保存内容',
+    humanReviewEdit: '编辑内容',
+    draftsStrategySupport: '支持类',
+    draftsStrategyRanking: '排行榜',
+    draftsClaimReview: 'Claim 审核',
+    draftsGeoReview: 'GEO 审核',
+    draftsReview: '审核',
+
     // Sidebar
     currentProject: '当前项目',
     currentKb: '当前知识库',
@@ -261,6 +276,47 @@ export const i18n = {
     settingsDarkMode: '深色模式',
     settingsNotifications: '通知',
     settingsDescription: '管理语言、主题、通知等应用偏好',
+
+    // Question Pool
+    questionPool: '问题池',
+    questionPoolTitle: '目标问题池',
+    questionPoolSubtitle: '生成并选择文章的目标问题',
+    questionPoolGenerate: '生成问题',
+    questionPoolGenerating: '生成中…',
+    questionPoolEmpty: '暂无问题',
+    questionPoolEmptyDesc: '点击"生成问题"开始',
+    questionPoolSelect: '选择',
+    questionPoolReject: '拒绝',
+    questionPoolSelected: '已选中',
+    questionPoolRejected: '已拒绝',
+    questionPoolNextStep: '下一步：发现信源',
+
+    // Source Discovery
+    sourceDiscovery: '信源发现',
+    sourceDiscoveryTitle: '信源发现',
+    sourceDiscoverySubtitle: '为目标问题推荐相关信源',
+    sourceDiscoveryDiscover: '发现信源',
+    sourceDiscoveryDiscovering: '发现中…',
+    sourceDiscoveryEmpty: '暂无信源',
+    sourceDiscoveryAdopt: '采用',
+    sourceDiscoverySkip: '跳过',
+    sourceDiscoveryNextStep: '下一步：生成文章',
+
+    // Title Picker
+    titlePickerGenerate: '生成标题建议',
+    titlePickerGenerating: '生成中…',
+    titlePickerSelect: '使用此标题',
+    titlePickerSelected: '已选中',
+
+    // Article extras
+    articleCompetitors: '竞品企业列表',
+    articleCompetitorsHint: '输入竞品名称，按回车或逗号分隔，最多 10 个',
+    articleCompetitorAdd: '添加竞品',
+    articleSelectedQuestion: '选定问题',
+    articleReselect: '重新选择',
+
+    // Content section
+    contentSection: '内容生产',
   },
   en: {
     dashboard: 'Dashboard',
@@ -507,6 +563,21 @@ export const i18n = {
     articleStatusApproved: 'Approved',
     articleStatusRejected: 'Rejected',
 
+    // Human Review
+    humanReview: 'Human Review',
+    humanReviewTitle: 'Article Review',
+    humanReviewBack: 'Back to Drafts',
+    humanReviewContent: 'Content',
+    humanReviewClaims: 'Claims',
+    humanReviewReviews: 'Reviews',
+    humanReviewSave: 'Save Content',
+    humanReviewEdit: 'Edit Content',
+    draftsStrategySupport: 'Support',
+    draftsStrategyRanking: 'Ranking',
+    draftsClaimReview: 'Claim Review',
+    draftsGeoReview: 'GEO Review',
+    draftsReview: 'Review',
+
     // Sidebar
     currentProject: 'Current Project',
     currentKb: 'Current Knowledge Base',
@@ -524,6 +595,47 @@ export const i18n = {
     settingsDarkMode: 'Dark mode',
     settingsNotifications: 'Notifications',
     settingsDescription: 'Manage language, theme, and notification preferences',
+
+    // Question Pool
+    questionPool: 'Question Pool',
+    questionPoolTitle: 'Question Pool',
+    questionPoolSubtitle: 'Generate and select target questions for articles',
+    questionPoolGenerate: 'Generate Questions',
+    questionPoolGenerating: 'Generating…',
+    questionPoolEmpty: 'No questions yet',
+    questionPoolEmptyDesc: 'Click "Generate Questions" to start',
+    questionPoolSelect: 'Select',
+    questionPoolReject: 'Reject',
+    questionPoolSelected: 'Selected',
+    questionPoolRejected: 'Rejected',
+    questionPoolNextStep: 'Next: Discover Sources',
+
+    // Source Discovery
+    sourceDiscovery: 'Source Discovery',
+    sourceDiscoveryTitle: 'Source Discovery',
+    sourceDiscoverySubtitle: 'Discover relevant sources for the target question',
+    sourceDiscoveryDiscover: 'Discover Sources',
+    sourceDiscoveryDiscovering: 'Discovering…',
+    sourceDiscoveryEmpty: 'No sources yet',
+    sourceDiscoveryAdopt: 'Adopt',
+    sourceDiscoverySkip: 'Skip',
+    sourceDiscoveryNextStep: 'Next: Generate Article',
+
+    // Title Picker
+    titlePickerGenerate: 'Generate Title Suggestions',
+    titlePickerGenerating: 'Generating…',
+    titlePickerSelect: 'Use This Title',
+    titlePickerSelected: 'Selected',
+
+    // Article extras
+    articleCompetitors: 'Competitor List',
+    articleCompetitorsHint: 'Enter competitor names, press Enter or comma to add, max 10',
+    articleCompetitorAdd: 'Add competitor',
+    articleSelectedQuestion: 'Selected Question',
+    articleReselect: 'Reselect',
+
+    // Content section
+    contentSection: 'Content',
   },
 };
 

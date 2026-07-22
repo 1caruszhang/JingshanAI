@@ -1,7 +1,8 @@
-import {useState, useMemo} from 'react';
+import {useState, useMemo, KeyboardEvent} from 'react';
 import {Card} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {Badge} from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -14,7 +15,8 @@ import {useView} from '@/context/ViewContext';
 import {useAppState} from '@/context/AppStateContext';
 import {articleApi} from '@/lib/electron-api';
 import {cn} from '@/lib/utils';
-import {Sparkles, Loader2, FileText} from 'lucide-react';
+import {Sparkles, Loader2, FileText, X} from 'lucide-react';
+import TitlePickerStep from './TitlePickerStep';
 
 const SUPPORT_ARTICLE_TYPES = [
   {value: 'enterprise_profile', labelZh: '企业介绍', labelEn: 'Enterprise Profile'},
@@ -26,13 +28,25 @@ const SUPPORT_ARTICLE_TYPES = [
 
 export default function ArticleGenerationView() {
   const {cls, t, lang} = useTheme();
-  const {navigateTo} = useView();
+  const {navigateTo, viewParams} = useView();
   const {currentProject} = useAppState();
 
+  const [strategy, setStrategy] = useState<'support_article' | 'ranking_article'>('support_article');
   const [supportType, setSupportType] = useState('enterprise_profile');
-  const [targetQuestion, setTargetQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Competitor tags state for ranking_article
+  const [competitors, setCompetitors] = useState<string[]>([]);
+  const [competitorInput, setCompetitorInput] = useState('');
+
+  // Title picker state
+  const [selectedTitle, setSelectedTitle] = useState('');
+
+  // targetQuestion: from viewParams if navigated from questionPool, else manual input
+  const preselectedQuestion = viewParams.selectedQuestion as string | undefined;
+  const [targetQuestion, setTargetQuestion] = useState('');
+  const effectiveQuestion = preselectedQuestion ?? targetQuestion;
 
   const defaultQuestion = useMemo(() => {
     if (currentProject) {
@@ -43,17 +57,53 @@ export default function ArticleGenerationView() {
     return '';
   }, [currentProject, lang]);
 
+  const addCompetitor = (raw: string) => {
+    const name = raw.trim().replace(/,$/, '').trim();
+    if (!name) return;
+    if (competitors.length >= 10) return;
+    if (competitors.includes(name)) return;
+    setCompetitors((prev) => [...prev, name]);
+  };
+
+  const handleCompetitorKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addCompetitor(competitorInput);
+      setCompetitorInput('');
+    }
+  };
+
+  const handleCompetitorBlur = () => {
+    if (competitorInput.trim()) {
+      addCompetitor(competitorInput);
+      setCompetitorInput('');
+    }
+  };
+
+  const removeCompetitor = (name: string) => {
+    setCompetitors((prev) => prev.filter((c) => c !== name));
+  };
+
   const handleGenerate = async () => {
     if (!currentProject) return;
     setLoading(true);
     setError(null);
     try {
-      await articleApi.generate({
-        projectId: currentProject.id,
-        strategy: 'support_article' as const,
-        supportArticleType: supportType,
-        targetQuestion: targetQuestion.trim() || defaultQuestion,
-      });
+      if (strategy === 'ranking_article') {
+        await articleApi.generateRanking({
+          projectId: currentProject.id,
+          competitors,
+          targetQuestion: effectiveQuestion.trim() || defaultQuestion,
+        });
+      } else {
+        await articleApi.generate({
+          projectId: currentProject.id,
+          strategy: 'support_article' as const,
+          supportArticleType: supportType,
+          targetQuestion: effectiveQuestion.trim() || defaultQuestion,
+          title: selectedTitle || undefined,
+        });
+      }
       navigateTo('drafts');
     } catch (err) {
       console.error('Article generation failed:', err);
@@ -91,50 +141,122 @@ export default function ArticleGenerationView() {
       </div>
 
       <Card className={cn('p-6 space-y-6', cls('bg-white', 'bg-[#1c1c1f]'))}>
+        {/* Strategy selector */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <label className="text-sm font-medium">{t.articleStrategy ?? '文章策略'}</label>
-            <Select value="support_article" disabled>
+            <Select value={strategy} onValueChange={(v) => setStrategy(v as typeof strategy)}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder={t.articleSupportArticle ?? '支持类文章'} />
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="support_article">
                   {t.articleSupportArticle ?? '支持类文章'}
                 </SelectItem>
+                <SelectItem value="ranking_article">
+                  {t.articleRankingArticle ?? '排行榜文章'}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t.articleSupportType ?? '文章子类型'}</label>
-            <Select value={supportType} onValueChange={setSupportType}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SUPPORT_ARTICLE_TYPES.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    {lang === 'zh' ? type.labelZh : type.labelEn}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {strategy === 'support_article' && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t.articleSupportType ?? '文章子类型'}</label>
+              <Select value={supportType} onValueChange={setSupportType}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SUPPORT_ARTICLE_TYPES.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {lang === 'zh' ? type.labelZh : type.labelEn}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
+        {/* Competitors (ranking_article only) */}
+        {strategy === 'ranking_article' && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t.articleCompetitors ?? '竞品企业列表'}</label>
+            <Input
+              value={competitorInput}
+              onChange={(e) => setCompetitorInput(e.target.value)}
+              onKeyDown={handleCompetitorKeyDown}
+              onBlur={handleCompetitorBlur}
+              placeholder={t.articleCompetitorsHint ?? '输入竞品名称，按回车或逗号分隔，最多 10 个'}
+              disabled={competitors.length >= 10}
+            />
+            {competitors.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {competitors.map((c) => (
+                  <Badge
+                    key={c}
+                    variant="secondary"
+                    className="gap-1 pl-2 pr-1 py-0.5 text-xs"
+                  >
+                    {c}
+                    <button
+                      onClick={() => removeCompetitor(c)}
+                      className={cn(
+                        'rounded-sm p-0.5 transition-colors',
+                        cls('hover:bg-gray-300/60', 'hover:bg-zinc-600/60'),
+                      )}
+                      aria-label={`Remove ${c}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Target question */}
         <div className="space-y-2">
           <label className="text-sm font-medium">{t.articleTargetQuestion ?? '目标问题 / 主题'}</label>
-          <Input
-            value={targetQuestion}
-            onChange={(e) => setTargetQuestion(e.target.value)}
-            placeholder={defaultQuestion}
-          />
-          <p className={cn('text-xs', cls('text-gray-500', 'text-zinc-400'))}>
-            {t.articleTargetQuestionHint ??
-              '留空将使用默认问题：介绍企业背景与核心优势。'}
-          </p>
+          {preselectedQuestion ? (
+            <div className={cn('rounded-lg px-3 py-2.5 text-sm flex items-start justify-between gap-3', cls('bg-blue-50 border border-blue-200', 'bg-blue-500/10 border border-blue-500/20'))}>
+              <span className={cn(cls('text-blue-800', 'text-blue-300'))}>{preselectedQuestion}</span>
+              <button
+                onClick={() => navigateTo('questionPool')}
+                className={cn('text-xs shrink-0 underline underline-offset-2', cls('text-blue-600 hover:text-blue-700', 'text-blue-400 hover:text-blue-300'))}
+              >
+                {t.articleReselect ?? '重新选择'}
+              </button>
+            </div>
+          ) : (
+            <>
+              <Input
+                value={targetQuestion}
+                onChange={(e) => setTargetQuestion(e.target.value)}
+                placeholder={defaultQuestion}
+              />
+              <p className={cn('text-xs', cls('text-gray-500', 'text-zinc-400'))}>
+                {t.articleTargetQuestionHint ??
+                  '留空将使用默认问题：介绍企业背景与核心优势。'}
+              </p>
+            </>
+          )}
         </div>
+
+        {/* Title Picker */}
+        {effectiveQuestion.trim() && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{lang === 'zh' ? '标题建议' : 'Title Suggestions'}</label>
+            <TitlePickerStep
+              projectId={currentProject.id}
+              targetQuestion={effectiveQuestion.trim() || defaultQuestion}
+              onSelect={setSelectedTitle}
+              selectedTitle={selectedTitle}
+            />
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 

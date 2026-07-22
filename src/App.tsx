@@ -5,6 +5,7 @@ import LayoutShell from './components/layout/LayoutShell';
 import DashboardView from './components/dashboard/DashboardView';
 import ChatInterface from './components/chat/ChatInterface';
 import DraftsView from './components/drafts/DraftsView';
+import HumanReviewView from './components/drafts/HumanReviewView';
 import AutoLearningView from './components/auto-learning/AutoLearningView';
 import AiWebBuilderView from './components/ai-web-builder/AiWebBuilderView';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -13,6 +14,8 @@ import KbCreateView from './components/knowledge-base/KbCreateView';
 import FactReviewView from './components/facts/FactReviewView';
 import EnterpriseProfileView from './components/facts/EnterpriseProfileView';
 import ArticleGenerationView from './components/article-generation/ArticleGenerationView';
+import QuestionPoolView from './components/article-generation/QuestionPoolView';
+import SourceDiscoveryView from './components/article-generation/SourceDiscoveryView';
 import type { View } from './types/domain';
 
 function KbIngestWrapper() {
@@ -33,6 +36,9 @@ const viewComponents: Record<View, React.ComponentType> = {
   factReview: FactReviewView,
   enterpriseProfile: EnterpriseProfileView,
   articleGeneration: ArticleGenerationView,
+  humanReview: HumanReviewView,
+  questionPool: QuestionPoolView,
+  sourceDiscovery: SourceDiscoveryView,
 };
 
 // 切换视图时保持 mount，避免本地状态丢失（思考动画、创建进度等）

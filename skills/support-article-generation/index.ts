@@ -7,6 +7,9 @@ export interface SupportArticleInput {
   supportArticleType: string;
   targetQuestion: string;
   evidencePack: EvidencePack;
+  outline?: string;
+  keyPoints?: string[];
+  suggestedLength?: number;
 }
 
 export interface SupportArticleOutput {
@@ -72,10 +75,15 @@ function formatEvidence(evidence: EvidencePack): string {
 export async function generateSupportArticle(
   input: SupportArticleInput,
 ): Promise<SupportArticleOutput> {
+  const planningContext =
+    input.outline || input.keyPoints
+      ? `\n内容大纲：\n${input.outline ?? ''}\n\n核心要点：\n${(input.keyPoints ?? []).map((p, i) => `${i + 1}. ${p}`).join('\n')}\n${input.suggestedLength ? `\n建议字数：约 ${input.suggestedLength} 字` : ''}\n`
+      : '';
+
   const userPrompt = `项目：${input.projectName}
 文章子类型：${input.supportArticleType}
 目标问题：${input.targetQuestion}
-
+${planningContext}
 ${formatEvidence(input.evidencePack)}
 
 请根据以上信息撰写文章，输出 JSON：

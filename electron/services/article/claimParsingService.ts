@@ -1,7 +1,8 @@
 import {z} from 'zod';
 import {chat} from '../llmService.ts';
 import {buildEvidencePack} from '../ragService.ts';
-import type {EvidencePack, EvidenceFact, EvidenceChunk} from '../ragService.ts';
+import type {EvidencePack} from '../ragService.ts';
+import {mapClaimSources} from '../../../skills/claim-source-mapping/index.ts';
 import {
   getArtifactById,
   getArticleMetaByArtifactId,
@@ -69,12 +70,21 @@ ${artifact.content ?? ''}
 
   const validated = OutputSchema.parse(parsed);
 
-  const parsedClaims: ParsedClaim[] = validated.map((c) => ({
-    claimText: c.claimText,
-    claimType: c.claimType as ClaimType,
-    riskLevel: c.riskLevel as RiskLevel,
-    sources: mapSources(c.claimText, evidence),
-  }));
+  const parsedClaims: ParsedClaim[] = await Promise.all(
+    validated.map(async (c) => {
+      const sources = await mapClaimSources({
+        claimText: c.claimText,
+        evidencePack: evidence,
+      }).catch(() => mapSourcesFallback(c.claimText, evidence));
+
+      return {
+        claimText: c.claimText,
+        claimType: c.claimType as ClaimType,
+        riskLevel: c.riskLevel as RiskLevel,
+        sources,
+      };
+    }),
+  );
 
   createClaims(artifactId, artifact.project_id, parsedClaims);
 
@@ -86,7 +96,7 @@ ${artifact.content ?? ''}
   }));
 }
 
-function mapSources(
+function mapSourcesFallback(
   claimText: string,
   evidence: EvidencePack,
 ): ParsedClaim['sources'] {
