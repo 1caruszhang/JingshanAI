@@ -1,4 +1,10 @@
 {
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Run npm scripts like npm run lint, npm run build, npm run dev"
+    ]
+  },
   "permissions": {
     "allow": [
       "mcp__plugin_playwright_playwright__browser_snapshot",

@@ -21,6 +21,8 @@ export type ModelRole =
   | 'workflow_planning'
   | 'reflection_candidate'
   | 'agent_runtime'
+  | 'question_generation'
+  | 'title_generation'
   | 'chat';
 
 export type ModelRoute = {

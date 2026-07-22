@@ -104,6 +104,32 @@ export const DEEPSEEK_MODEL_ROUTES: Record<string, ModelRoute> = {
     timeoutMs: parseInt(env('DEEPSEEK_TIMEOUT_MS', '90000')!, 10),
     maxRetries: parseInt(env('DEEPSEEK_MAX_RETRIES', '1')!, 10),
   },
+
+  question_generation: {
+    role: 'question_generation',
+    provider: 'deepseek',
+    apiMode: 'chat_completions',
+    model: deepSeekModel('DEEPSEEK_PRO_MODEL', 'deepseek-v4-pro'),
+    stream: false,
+    skill: 'question-generation',
+    promptVersion: 'question-generation.prompt-contract.v1',
+    responseFormat: 'json_object',
+    timeoutMs: parseInt(env('DEEPSEEK_TIMEOUT_MS', '90000')!, 10),
+    maxRetries: parseInt(env('DEEPSEEK_MAX_RETRIES', '1')!, 10),
+  },
+
+  title_generation: {
+    role: 'title_generation',
+    provider: 'deepseek',
+    apiMode: 'chat_completions',
+    model: deepSeekModel('DEEPSEEK_PRO_MODEL', 'deepseek-v4-pro'),
+    stream: false,
+    skill: 'title-generation',
+    promptVersion: 'title-generation.prompt-contract.v1',
+    responseFormat: 'json_object',
+    timeoutMs: parseInt(env('DEEPSEEK_TIMEOUT_MS', '90000')!, 10),
+    maxRetries: parseInt(env('DEEPSEEK_MAX_RETRIES', '1')!, 10),
+  },
 };
 
 export function getDeepseekRoute(role: string): ModelRoute | undefined {

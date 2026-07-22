@@ -67,7 +67,9 @@ import {
   deleteProject,
   countProjectArtifacts,
 } from '../services/projectService.ts';
-import {askQuestion} from '../services/ragService.ts';
+import {askQuestion, buildEvidencePack} from '../services/ragService.ts';
+import {discoverSources} from '../services/article/sourceDiscoveryService.ts';
+import {generateTitles} from '../../skills/title-generation/index.ts';
 import {runMinimalAgentTask} from '../services/agent/geoAgentRuntime.ts';
 import {extractFacts} from '../services/facts/factExtractionService.ts';
 import {runFactOntologySkill} from '../services/facts/factOntologySkill.ts';
@@ -81,6 +83,7 @@ import {listFacts} from '../services/facts/factRepository.ts';
 import {generateArticle} from '../services/article/articleGenerationService.ts';
 import {reviewClaims} from '../services/article/claimReviewService.ts';
 import {reviewGeo} from '../services/article/geoReviewService.ts';
+import {generateQuestions, selectQuestion, rejectQuestion, listQuestions} from '../services/article/questionPoolService.ts';
 import {
   listArticlesByProject,
   getArtifactById,
@@ -690,33 +693,40 @@ export function registerIpcHandlers() {
 
   // Phase 7：问题池、信源发现、标题生成、排行榜文章
   createHandler('question:generate', async (projectId) => {
-    QuestionGenerateSchema.parse(projectId);
-    throw new Error('question:generate is not implemented');
+    const validated = QuestionGenerateSchema.parse(projectId);
+    return generateQuestions(validated);
   });
 
   createHandler('question:list', (projectId) => {
-    QuestionListSchema.parse(projectId);
-    throw new Error('question:list is not implemented');
+    const validated = QuestionListSchema.parse(projectId);
+    return listQuestions(validated);
   });
 
   createHandler('question:select', (id) => {
-    QuestionSelectSchema.parse(id);
-    throw new Error('question:select is not implemented');
+    const validated = QuestionSelectSchema.parse(id);
+    selectQuestion(validated);
   });
 
   createHandler('question:reject', (id) => {
-    QuestionRejectSchema.parse(id);
-    throw new Error('question:reject is not implemented');
+    const validated = QuestionRejectSchema.parse(id);
+    rejectQuestion(validated);
   });
 
   createHandler('source:discover', async (projectId, targetQuestion) => {
-    SourceDiscoverSchema.parse({projectId, targetQuestion});
-    throw new Error('source:discover is not implemented');
+    const validated = SourceDiscoverSchema.parse({projectId, targetQuestion});
+    return discoverSources(validated.projectId, validated.targetQuestion);
   });
 
   createHandler('title:generate', async (projectId, targetQuestion) => {
-    TitleGenerateSchema.parse({projectId, targetQuestion});
-    throw new Error('title:generate is not implemented');
+    const validated = TitleGenerateSchema.parse({projectId, targetQuestion});
+    const project = getProject(validated.projectId);
+    if (!project) throw new Error(`Project ${validated.projectId} not found`);
+    const evidence = await buildEvidencePack(validated.projectId, validated.targetQuestion);
+    return generateTitles({
+      projectName: project.name,
+      targetQuestion: validated.targetQuestion,
+      evidencePack: evidence,
+    });
   });
 
   createHandler('article:generateRanking', async (params) => {
