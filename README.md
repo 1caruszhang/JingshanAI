@@ -1,4 +1,4 @@
-# NAI Agent / GEO Agent
+# JingshanAI
 
 > An Electron-based desktop application for Generative Engine Optimization (GEO) and content marketing, powered by LLMs.
 
