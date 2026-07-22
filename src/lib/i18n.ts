@@ -103,6 +103,20 @@ export const i18n = {
     expandTeams: '展开企业列表',
     collapseTeams: '收起企业列表',
 
+    // Enterprise Profile
+    enterpriseFactsSection: '企业事实',
+    enterpriseProfile: '企业资料',
+    enterpriseProfileSubtitle: '填写企业基础信息，提交后将自动生成结构化事实，并进入事实审核页面。',
+    enterpriseProfileSelectProject: '选择企业项目',
+    enterpriseProfileFields: '企业信息字段',
+    enterpriseProfileFieldsHint: '带 * 为推荐填写字段；带 ⚠ 的高风险字段，AI 补全时请仔细核实。',
+    enterpriseProfileHighRisk: 'AI 补全时请仔细核实',
+    enterpriseProfileNoProject: '请先选择一个企业项目',
+    enterpriseProfileWarnings: '部分字段存在风险提示',
+    enterpriseProfileSubmitError: '提交失败',
+    enterpriseProfileSubmit: '提交并抽取事实',
+    enterpriseProfileSubmitting: '提交中…',
+
     // Fact Review
     factReview: '事实审核',
     factReviewTitle: '企业事实审核',
@@ -351,6 +365,20 @@ export const i18n = {
     addTeam: 'Add team',
     expandTeams: 'Expand team list',
     collapseTeams: 'Collapse team list',
+
+    // Enterprise Profile
+    enterpriseFactsSection: 'Enterprise Facts',
+    enterpriseProfile: 'Enterprise Profile',
+    enterpriseProfileSubtitle: 'Fill in enterprise details. On submit, structured facts will be extracted and you will be taken to the review page.',
+    enterpriseProfileSelectProject: 'Select Enterprise Project',
+    enterpriseProfileFields: 'Enterprise Info Fields',
+    enterpriseProfileFieldsHint: 'Fields marked * are recommended; fields with ⚠ are high-risk — verify carefully when AI auto-fills.',
+    enterpriseProfileHighRisk: 'Verify carefully when AI fills',
+    enterpriseProfileNoProject: 'Please select a project first',
+    enterpriseProfileWarnings: 'Some fields have risk warnings',
+    enterpriseProfileSubmitError: 'Submission failed',
+    enterpriseProfileSubmit: 'Submit & Extract Facts',
+    enterpriseProfileSubmitting: 'Submitting…',
 
     // Fact Review
     factReview: 'Fact Review',

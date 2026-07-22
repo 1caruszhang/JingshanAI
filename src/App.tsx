@@ -11,6 +11,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import KbIngestPanel from './components/knowledge-base/KbIngestPanel';
 import KbCreateView from './components/knowledge-base/KbCreateView';
 import FactReviewView from './components/facts/FactReviewView';
+import EnterpriseProfileView from './components/facts/EnterpriseProfileView';
 import ArticleGenerationView from './components/article-generation/ArticleGenerationView';
 import type { View } from './types/domain';
 
@@ -30,6 +31,7 @@ const viewComponents: Record<View, React.ComponentType> = {
   kbIngest: KbIngestWrapper,
   kbCreate: KbCreateView,
   factReview: FactReviewView,
+  enterpriseProfile: EnterpriseProfileView,
   articleGeneration: ArticleGenerationView,
 };
 

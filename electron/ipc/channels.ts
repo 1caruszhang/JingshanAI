@@ -119,6 +119,8 @@ export interface IpcChannels {
     projectId: number;
     entryId?: number;
     chunkIds?: number[];
+    mode?: 'ontology' | 'free';
+    formInputs?: Record<string, string>;
   }) => FactExtractionResult;
   'fact:list': (params: {
     projectId: number;

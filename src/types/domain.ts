@@ -8,6 +8,7 @@ export type View =
   | 'kbIngest'
   | 'kbCreate'
   | 'factReview'
+  | 'enterpriseProfile'
   | 'articleGeneration';
 
 // 通用状态枚举
@@ -813,3 +814,15 @@ export interface KbAsset {
   status: 'indexed' | 'pending';
   words: number;
 }
+
+// Re-export fact ontology constants and types for use in Renderer
+// factTypes.ts has no Node/Electron dependencies and is safe to import from either process,
+// but all Renderer code should import via domain.ts to respect the architectural boundary.
+export {
+  FACT_TYPES,
+  FACT_TYPE_LABELS,
+  HIGH_RISK_FACT_TYPES,
+  REQUIRED_FACT_TYPES_FOR_ARTICLE,
+  isFactType,
+} from '../../electron/services/facts/factTypes';
+export type { FactType, FactExtractionResult } from '../../electron/services/facts/factTypes';

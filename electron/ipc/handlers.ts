@@ -63,6 +63,7 @@ import {
 import {askQuestion} from '../services/ragService.ts';
 import {runMinimalAgentTask} from '../services/agent/geoAgentRuntime.ts';
 import {extractFacts} from '../services/facts/factExtractionService.ts';
+import {runFactOntologySkill} from '../services/facts/factOntologySkill.ts';
 import {confirmFacts, rejectFacts, modifyAndConfirm} from '../services/facts/factReviewService.ts';
 import {parseReviewIntent} from '../services/facts/factReviewIntentParser.ts';
 import {
@@ -244,6 +245,18 @@ export function registerIpcHandlers() {
   // 事实抽取与审核
   createHandler('fact:extract', async (params) => {
     const validated = FactExtractSchema.parse(params);
+    if (validated.mode === 'ontology') {
+      if (!validated.formInputs) {
+        throw new Error("mode 'ontology' 需要提供 formInputs，但未收到该字段");
+      }
+      return runFactOntologySkill({
+        projectId: validated.projectId,
+        formInputs: validated.formInputs,
+        entryId: validated.entryId,
+        chunkIds: validated.chunkIds,
+      });
+    }
+    // mode === 'free' or undefined — existing behaviour
     return extractFacts({
       projectId: validated.projectId,
       entryId: validated.entryId,

@@ -85,6 +85,8 @@ export const FactExtractSchema = z.object({
   projectId: z.number().int().positive(),
   entryId: z.number().int().positive().optional(),
   chunkIds: z.array(z.number().int().positive()).optional(),
+  mode: z.enum(['ontology', 'free']).optional(),
+  formInputs: z.record(z.string()).optional(),
 });
 
 export const FactListSchema = z.object({
