@@ -5,6 +5,7 @@ import type {
   ArticleArtifactMeta,
   ArticleClaim,
   ArticleClaimSource,
+  ArticleGenerateResult,
   ArticleReview,
   ChatMessage,
   EnterpriseFact,
@@ -12,7 +13,11 @@ import type {
   FactStatus,
   Project,
   PublishRecord,
+  QuestionPoolItem,
+  RankingArticleParams,
   ReflectionHypothesis,
+  SourceRecommendation,
+  TitleCandidate,
   ToolApproval,
   VisibilityCheck,
 } from '@/types/domain';
@@ -233,6 +238,15 @@ export interface IpcChannels {
     status: 'draft' | 'claim_reviewed' | 'geo_reviewed' | 'approved' | 'rejected',
   ) => void;
   'article:updateContent': (artifactId: number, content: string) => void;
+
+  // Phase 7：问题池、信源发现、标题生成、排行榜文章
+  'question:generate': (projectId: number) => QuestionPoolItem[];
+  'question:list': (projectId: number) => QuestionPoolItem[];
+  'question:select': (id: number) => void;
+  'question:reject': (id: number) => void;
+  'source:discover': (projectId: number, targetQuestion: string) => SourceRecommendation[];
+  'title:generate': (projectId: number, targetQuestion: string) => TitleCandidate[];
+  'article:generateRanking': (params: RankingArticleParams) => ArticleGenerateResult;
 
   // 窗口
   'window:minimize': () => void;

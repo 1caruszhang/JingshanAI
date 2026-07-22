@@ -255,3 +255,23 @@ export const ArticleUpdateContentSchema = z.object({
   artifactId: z.number().int().positive(),
   content: z.string(),
 });
+
+// Phase 7：问题池、信源发现、标题生成、排行榜文章
+export const QuestionGenerateSchema = z.number().int().positive();
+export const QuestionListSchema = z.number().int().positive();
+export const QuestionSelectSchema = z.number().int().positive();
+export const QuestionRejectSchema = z.number().int().positive();
+
+export const ProjectQuestionSchema = z.object({
+  projectId: z.number().int().positive(),
+  targetQuestion: z.string().min(1),
+});
+
+export const SourceDiscoverSchema = ProjectQuestionSchema;
+export const TitleGenerateSchema = ProjectQuestionSchema;
+
+export const ArticleGenerateRankingSchema = z.object({
+  projectId: z.number().int().positive(),
+  competitors: z.array(z.string()),
+  targetQuestion: z.string().min(1),
+});

@@ -7,6 +7,7 @@ import {
   AgentTaskListSchema,
   AgentTaskRunSchema,
   AppPathSchema,
+  ArticleGenerateRankingSchema,
   ArticleGenerateSchema,
   ArticleIdSchema,
   ArticleStatusSchema,
@@ -23,6 +24,12 @@ import {
   DraftReviewSchema,
   DraftUpdateSchema,
   FactConfirmSchema,
+  QuestionGenerateSchema,
+  QuestionListSchema,
+  QuestionRejectSchema,
+  QuestionSelectSchema,
+  SourceDiscoverSchema,
+  TitleGenerateSchema,
   FactExtractSchema,
   FactListPendingSchema,
   FactListSchema,
@@ -679,6 +686,42 @@ export function registerIpcHandlers() {
   createHandler('article:updateContent', (artifactId, content) => {
     const validated = ArticleUpdateContentSchema.parse({artifactId, content});
     updateArticleContent(validated.artifactId, validated.content);
+  });
+
+  // Phase 7：问题池、信源发现、标题生成、排行榜文章
+  createHandler('question:generate', async (projectId) => {
+    QuestionGenerateSchema.parse(projectId);
+    throw new Error('question:generate is not implemented');
+  });
+
+  createHandler('question:list', (projectId) => {
+    QuestionListSchema.parse(projectId);
+    throw new Error('question:list is not implemented');
+  });
+
+  createHandler('question:select', (id) => {
+    QuestionSelectSchema.parse(id);
+    throw new Error('question:select is not implemented');
+  });
+
+  createHandler('question:reject', (id) => {
+    QuestionRejectSchema.parse(id);
+    throw new Error('question:reject is not implemented');
+  });
+
+  createHandler('source:discover', async (projectId, targetQuestion) => {
+    SourceDiscoverSchema.parse({projectId, targetQuestion});
+    throw new Error('source:discover is not implemented');
+  });
+
+  createHandler('title:generate', async (projectId, targetQuestion) => {
+    TitleGenerateSchema.parse({projectId, targetQuestion});
+    throw new Error('title:generate is not implemented');
+  });
+
+  createHandler('article:generateRanking', async (params) => {
+    ArticleGenerateRankingSchema.parse(params);
+    throw new Error('article:generateRanking is not implemented');
   });
 
   // 窗口

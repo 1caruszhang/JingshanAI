@@ -147,6 +147,8 @@ export const reflectionApi = {
 export const articleApi = {
   generate: (params: Parameters<IpcChannels['article:generate']>[0]) =>
     api.invoke('article:generate', params),
+  generateRanking: (params: Parameters<IpcChannels['article:generateRanking']>[0]) =>
+    api.invoke('article:generateRanking', params),
   list: (projectId: number) => api.invoke('article:list', projectId),
   get: (artifactId: number) => api.invoke('article:get', artifactId),
   claimReview: (artifactId: number) => api.invoke('article:claimReview', artifactId),
@@ -156,4 +158,21 @@ export const articleApi = {
     status: Parameters<IpcChannels['article:updateStatus']>[1],
   ) => api.invoke('article:updateStatus', artifactId, status),
   updateContent: (artifactId: number, content: string) => api.invoke('article:updateContent', artifactId, content),
+};
+
+export const questionApi = {
+  generate: (projectId: number) => api.invoke('question:generate', projectId),
+  list: (projectId: number) => api.invoke('question:list', projectId),
+  select: (id: number) => api.invoke('question:select', id),
+  reject: (id: number) => api.invoke('question:reject', id),
+};
+
+export const sourceApi = {
+  discover: (projectId: number, targetQuestion: string) =>
+    api.invoke('source:discover', projectId, targetQuestion),
+};
+
+export const titleApi = {
+  generate: (projectId: number, targetQuestion: string) =>
+    api.invoke('title:generate', projectId, targetQuestion),
 };

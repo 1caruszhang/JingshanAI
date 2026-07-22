@@ -269,6 +269,45 @@ export interface ArticleReview {
   created_at: string;
 }
 
+// 文章生成结果
+export interface ArticleGenerateResult {
+  artifact: AgentArtifact;
+  meta: ArticleArtifactMeta;
+  claims: ArticleClaim[];
+}
+
+// Phase 7：问题池
+export interface QuestionPoolItem {
+  id: number;
+  projectId: number;
+  questionText: string;
+  status: 'candidate' | 'selected' | 'rejected';
+  score?: number;
+  scoreReason?: string;
+}
+
+// Phase 7：信源推荐
+export interface SourceRecommendation {
+  url: string;
+  title: string;
+  relevanceReason: string;
+}
+
+// Phase 7：标题候选
+export interface TitleCandidate {
+  titleText: string;
+  score: number;
+  intent: string;
+  notes?: string;
+}
+
+// Phase 7：排行榜文章生成参数
+export interface RankingArticleParams {
+  projectId: number;
+  competitors: string[];
+  targetQuestion: string;
+}
+
 // 排行榜上榜企业
 export interface RankingArticleItem {
   id: number;
