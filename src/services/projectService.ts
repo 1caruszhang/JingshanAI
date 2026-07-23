@@ -4,13 +4,13 @@ import type { Project } from '../types/domain';
 export const projectService = {
   async getAll(): Promise<Project[]> {
     return dbApi.query(
-      "SELECT id, name, description, industry, region, status, created_at, updated_at FROM projects WHERE status IS NULL OR status = 'active' ORDER BY updated_at DESC",
+      "SELECT id, name, description, industry, region, domain, status, created_at, updated_at FROM projects WHERE status IS NULL OR status = 'active' ORDER BY updated_at DESC",
     ) as Promise<Project[]>;
   },
 
   async getById(id: number): Promise<Project | undefined> {
     const rows = (await dbApi.query(
-      'SELECT id, name, description, industry, region, status, created_at, updated_at FROM projects WHERE id = ?',
+      'SELECT id, name, description, industry, region, domain, status, created_at, updated_at FROM projects WHERE id = ?',
       [id],
     )) as Project[];
     return rows[0];
@@ -20,12 +20,13 @@ export const projectService = {
     data: Omit<Project, 'id' | 'created_at' | 'updated_at'>,
   ): Promise<number> {
     const result = await dbApi.exec(
-      "INSERT INTO projects (name, description, industry, region, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+      "INSERT INTO projects (name, description, industry, region, domain, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
       [
         data.name,
         data.description ?? null,
         data.industry ?? null,
         data.region ?? null,
+        data.domain ?? null,
         data.status ?? 'draft',
       ],
     );
@@ -50,6 +51,10 @@ export const projectService = {
     if (data.region !== undefined) {
       fields.push('region = ?');
       params.push(data.region);
+    }
+    if (data.domain !== undefined) {
+      fields.push('domain = ?');
+      params.push(data.domain ?? null);
     }
     if (data.status !== undefined) {
       fields.push('status = ?');

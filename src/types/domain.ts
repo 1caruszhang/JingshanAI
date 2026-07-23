@@ -74,6 +74,7 @@ export interface Project {
   description: string | null;
   industry?: string | null;
   region?: string | null;
+  domain?: 'local_service' | 'saas' | 'ecommerce' | null;
   status?: string | null;
   created_at: string;
   updated_at: string;

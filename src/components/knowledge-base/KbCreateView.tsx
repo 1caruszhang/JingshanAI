@@ -13,6 +13,7 @@ import {projectService} from '@/services/projectService';
 import {knowledgeBaseService} from '@/services/knowledgeBaseService';
 import PendingFactChatCard, {FactItem} from '@/components/facts/PendingFactChatCard';
 import {cn} from '@/lib/utils';
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
 import {
   Upload,
   FileText,
@@ -54,6 +55,7 @@ export default function KbCreateView() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [files, setFiles] = useState<SelectedFile[]>([]);
   const [formData, setFormData] = useState<Record<string, string>>({});
+  const [domain, setDomain] = useState<'local_service' | 'saas' | 'ecommerce' | ''>('');
   const [textContent, setTextContent] = useState('');
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
@@ -69,6 +71,7 @@ export default function KbCreateView() {
       setStep(1);
       setFiles([]);
       setFormData({});
+      setDomain('');
       setTextContent('');
       setProgress(0);
       setStatusMessage('');
@@ -133,6 +136,7 @@ export default function KbCreateView() {
       const projectId = await projectService.create({
         name: projectName,
         description: projectDescription,
+        domain: domain || null,
       });
       setCreatedProjectId(projectId);
       setProgress(20);
@@ -181,7 +185,7 @@ export default function KbCreateView() {
       setError(err instanceof Error ? err.message : '创建失败');
       setStep(1);
     }
-  }, [formData, files, projectDescription, projectName, textContent, t.kbExtractingFacts]);
+  }, [domain, formData, files, projectDescription, projectName, textContent, t.kbExtractingFacts]);
 
   const handleFinish = async () => {
     if (createdProjectId) {
@@ -223,6 +227,24 @@ export default function KbCreateView() {
               />
             </div>
           ))}
+          <div>
+            <label className="text-sm font-medium mb-1.5 flex items-center gap-1.5">
+              <Briefcase className="w-3.5 h-3.5" />
+              业务领域
+              <span className={cn('text-xs font-normal', cls('text-gray-400', 'text-zinc-500'))}>(可选)</span>
+            </label>
+            <Select value={domain} onValueChange={(v) => setDomain(v as typeof domain)}>
+              <SelectTrigger>
+                <SelectValue placeholder="未设置" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">未设置</SelectItem>
+                <SelectItem value="local_service">本地服务</SelectItem>
+                <SelectItem value="saas">SaaS</SelectItem>
+                <SelectItem value="ecommerce">电商</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </Card>
 

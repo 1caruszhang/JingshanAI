@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { knowledgeBaseService } from '@/services/knowledgeBaseService';
 import { projectService } from '@/services/projectService';
 import { dialogApi } from '@/lib/electron-api';
@@ -13,7 +14,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useAppState } from '@/context/AppStateContext';
 import { cn } from '@/lib/utils';
 import type { Project, KnowledgeEntry, KnowledgeEntryStatus } from '@/types/domain';
-import { Trash2, FileText, RefreshCw } from 'lucide-react';
+import { Trash2, FileText, RefreshCw, Pencil, Check, X } from 'lucide-react';
 
 interface KbIngestPanelProps {
   projectId: number;
@@ -40,6 +41,8 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
   const [filePath, setFilePath] = useState('');
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<'idle' | 'ingesting' | 'success' | 'error'>('idle');
+  const [editingDomain, setEditingDomain] = useState(false);
+  const [pendingDomain, setPendingDomain] = useState<'local_service' | 'saas' | 'ecommerce' | ''>('');
 
   const canSubmitText = title.trim() && content.trim() && status !== 'ingesting';
   const canSubmitFile = title.trim() && filePath && status !== 'ingesting';
@@ -59,6 +62,7 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
       setEntries(entriesData);
       if (projectData) {
         setCurrentProject(projectData);
+        setPendingDomain((projectData.domain ?? '') as typeof pendingDomain);
       }
     } finally {
       setLoading(false);
@@ -114,6 +118,26 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
     loadData();
   };
 
+  const domainLabel = (d: string | null | undefined) => {
+    if (!d) return '未设置';
+    if (d === 'local_service') return '本地服务';
+    if (d === 'saas') return 'SaaS';
+    if (d === 'ecommerce') return '电商';
+    return d;
+  };
+
+  const handleSaveDomain = async () => {
+    if (!project) return;
+    await projectService.update(project.id, {domain: pendingDomain || null});
+    setProject((prev) => prev ? {...prev, domain: pendingDomain || null} : prev);
+    setEditingDomain(false);
+  };
+
+  const handleCancelDomain = () => {
+    setPendingDomain((project?.domain ?? '') as typeof pendingDomain);
+    setEditingDomain(false);
+  };
+
   if (loading) {
     return (
       <div className="p-6">
@@ -136,6 +160,43 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
               {project.description}
             </p>
           )}
+          <div className="flex items-center gap-2 mt-2">
+            <span className={cn('text-xs font-medium', cls('text-gray-400', 'text-zinc-500'))}>业务领域：</span>
+            {editingDomain ? (
+              <div className="flex items-center gap-1">
+                <Select value={pendingDomain} onValueChange={(v) => setPendingDomain(v as typeof pendingDomain)}>
+                  <SelectTrigger className="h-7 text-xs w-32">
+                    <SelectValue placeholder="未设置" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">未设置</SelectItem>
+                    <SelectItem value="local_service">本地服务</SelectItem>
+                    <SelectItem value="saas">SaaS</SelectItem>
+                    <SelectItem value="ecommerce">电商</SelectItem>
+                  </SelectContent>
+                </Select>
+                <button onClick={handleSaveDomain} className="p-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-emerald-500">
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={handleCancelDomain} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-400">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditingDomain(true)}
+                className={cn(
+                  'flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-colors',
+                  project?.domain
+                    ? cls('border-primary/30 text-primary bg-primary/5 hover:bg-primary/10', 'border-primary/30 text-primary bg-primary/10 hover:bg-primary/20')
+                    : cls('border-gray-200 text-gray-400 hover:border-gray-300', 'border-zinc-700 text-zinc-500 hover:border-zinc-600'),
+                )}
+              >
+                {domainLabel(project?.domain)}
+                <Pencil className="w-2.5 h-2.5" />
+              </button>
+            )}
+          </div>
         </div>
         <Button variant="outline" size="sm" onClick={loadData}>
           <RefreshCw className="w-4 h-4 mr-2" />
