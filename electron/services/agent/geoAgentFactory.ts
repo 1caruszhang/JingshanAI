@@ -73,7 +73,7 @@ const geoReviewInputSchema = z.object({
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function getProjectRow(projectId: number): Project | null {
+export function getProjectRow(projectId: number): Project | null {
   const db = getDb();
   const row = db
     .prepare(
@@ -136,6 +136,174 @@ async function runGuarded<T>(
   // agent stops the current chain.
   throw new Error(`${toolName} was rejected by the user`);
 }
+
+// ── Skill executors (shared by createGeoAgent tools and the runtime) ─────────
+//
+// Each executor is the body that used to live inline inside the LangChain
+// `tool(...)` wrappers below. They are extracted here so that BOTH the
+// `createGeoAgent` tool registration path AND the new Agent-first Runtime
+// (geoAgentRuntime.ts) invoke the exact same implementation under the
+// toolGuard policy. A runtime that routes to a skill name can look the
+// executor up in `SKILL_EXECUTORS` instead of re-implementing the call.
+//
+// Every executor returns a JSON string (the same contract the LangChain tools
+// used) so callers don't have to care which path produced the result.
+
+export interface SkillExecutorArgs {
+  projectId?: number;
+  targetQuestion?: string;
+  strategy?: 'support_article' | 'ranking_article';
+  supportArticleType?:
+    | 'enterprise_profile'
+    | 'product_service_intro'
+    | 'industry_insight'
+    | 'case_study'
+    | 'solution_guide';
+  title?: string;
+  artifactId?: number;
+  entryId?: number;
+  chunkIds?: number[];
+}
+
+export type SkillExecutor = (
+  args: SkillExecutorArgs,
+  ctx: AgentToolContext,
+) => Promise<string>;
+
+async function executeQuestionGenerate(
+  args: SkillExecutorArgs,
+  ctx: AgentToolContext,
+): Promise<string> {
+  return runGuarded('question.generate', args, args.projectId, ctx, async () => {
+    const items = await generateQuestions(args.projectId!);
+    return JSON.stringify(
+      items.map((q) => ({
+        id: q.id,
+        questionText: q.questionText,
+        score: q.score,
+        scoreReason: q.scoreReason,
+        status: q.status,
+      })),
+      null,
+      2,
+    );
+  });
+}
+
+async function executeSourceDiscover(
+  args: SkillExecutorArgs,
+  ctx: AgentToolContext,
+): Promise<string> {
+  return runGuarded('source.discover', args, args.projectId, ctx, async () => {
+    const sources = await discoverSources(args.projectId!, args.targetQuestion!);
+    return JSON.stringify(sources, null, 2);
+  });
+}
+
+async function executeArticleGenerate(
+  args: SkillExecutorArgs,
+  ctx: AgentToolContext,
+): Promise<string> {
+  return runGuarded('article.generate', args, args.projectId, ctx, async () => {
+    const result = await generateArticle({
+      projectId: args.projectId!,
+      strategy: args.strategy!,
+      supportArticleType: args.supportArticleType,
+      targetQuestion: args.targetQuestion!,
+      title: args.title,
+    });
+    return JSON.stringify(
+      {
+        artifactId: result.artifact.id,
+        title: result.artifact.title,
+        status: result.artifact.status,
+        claimsCount: result.claims.length,
+      },
+      null,
+      2,
+    );
+  });
+}
+
+async function executeFactExtract(
+  args: SkillExecutorArgs,
+  ctx: AgentToolContext,
+): Promise<string> {
+  return runGuarded('fact.extract', args, args.projectId, ctx, async () => {
+    const proj = getProjectRow(args.projectId!);
+    const relevantFactTypes = getFactTypesForDomain(proj?.domain ?? null);
+
+    const result = await extractFacts({
+      projectId: args.projectId!,
+      entryId: args.entryId,
+      chunkIds: args.chunkIds,
+      factTypes: relevantFactTypes,
+    });
+
+    return JSON.stringify(
+      {
+        ...result,
+        domain: proj?.domain ?? null,
+        domainFactTypes: relevantFactTypes ?? 'all',
+      },
+      null,
+      2,
+    );
+  });
+}
+
+async function executeClaimReview(
+  args: SkillExecutorArgs,
+  ctx: AgentToolContext,
+): Promise<string> {
+  return runGuarded('claim.review', args, undefined, ctx, async () => {
+    const result = await reviewClaims(args.artifactId!);
+    return JSON.stringify(result, null, 2);
+  });
+}
+
+async function executeGeoReview(
+  args: SkillExecutorArgs,
+  ctx: AgentToolContext,
+): Promise<string> {
+  return runGuarded('geo.review', args, undefined, ctx, async () => {
+    const result = await reviewGeo(args.artifactId!);
+    return JSON.stringify(result, null, 2);
+  });
+}
+
+/**
+ * `publish.plan` is the contractually high-risk skill (T8). There is no
+ * backing service yet, so the executor is a no-op that returns a pause
+ * marker. The toolGuard still writes a `tool_approvals` row and transitions
+ * the owning task to `waiting_approval` before this body runs, so the runtime
+ * observes `{status:'waiting_approval'}` and pauses — which is exactly the
+ * acceptance criterion "publish.plan 被触发时，runtime 暂停并推审批卡片".
+ */
+async function executePublishPlan(
+  _args: SkillExecutorArgs,
+  _ctx: AgentToolContext,
+): Promise<string> {
+  return JSON.stringify({status: 'waiting_for_approval', message: '发布计划已生成，等待用户审批'});
+}
+
+/**
+ * Registry of dotted skill identifiers → executor. Used by:
+ *   - the Agent-first Runtime (geoAgentRuntime.ts) after intentRouter picks a skill
+ *   - future callers that want to invoke a skill directly
+ *
+ * The LangChain `tool(...)` wrappers in `createGeoAgent` below call these same
+ * functions so behaviour is identical regardless of entry point.
+ */
+export const SKILL_EXECUTORS: Record<string, SkillExecutor> = {
+  'question.generate': executeQuestionGenerate,
+  'source.discover': executeSourceDiscover,
+  'article.generate': executeArticleGenerate,
+  'fact.extract': executeFactExtract,
+  'claim.review': executeClaimReview,
+  'geo.review': executeGeoReview,
+  'publish.plan': executePublishPlan,
+};
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
@@ -231,22 +399,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
     // ── Phase 7 service wrappers (T9) ─────────────────────────────────────
 
     const questionGenerateTool = tool(
-      async (input) => {
-        return runGuarded('question.generate', input, input.projectId, toolCtx, async () => {
-          const items = await generateQuestions(input.projectId);
-          return JSON.stringify(
-            items.map((q) => ({
-              id: q.id,
-              questionText: q.questionText,
-              score: q.score,
-              scoreReason: q.scoreReason,
-              status: q.status,
-            })),
-            null,
-            2,
-          );
-        });
-      },
+      async (input) => executeQuestionGenerate(input, toolCtx),
       {
         name: 'question_generate',
         description:
@@ -257,12 +410,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
     tools.push(questionGenerateTool);
 
     const sourceDiscoverTool = tool(
-      async (input) => {
-        return runGuarded('source.discover', input, input.projectId, toolCtx, async () => {
-          const sources = await discoverSources(input.projectId, input.targetQuestion);
-          return JSON.stringify(sources, null, 2);
-        });
-      },
+      async (input) => executeSourceDiscover(input, toolCtx),
       {
         name: 'source_discover',
         description: '为目标问题推荐权威参考信源（行业报告、榜单、协会等）。',
@@ -272,27 +420,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
     tools.push(sourceDiscoverTool);
 
     const articleGenerateTool = tool(
-      async (input) => {
-        return runGuarded('article.generate', input, input.projectId, toolCtx, async () => {
-          const result = await generateArticle({
-            projectId: input.projectId,
-            strategy: input.strategy,
-            supportArticleType: input.supportArticleType,
-            targetQuestion: input.targetQuestion,
-            title: input.title,
-          });
-          return JSON.stringify(
-            {
-              artifactId: result.artifact.id,
-              title: result.artifact.title,
-              status: result.artifact.status,
-              claimsCount: result.claims.length,
-            },
-            null,
-            2,
-          );
-        });
-      },
+      async (input) => executeArticleGenerate(input, toolCtx),
       {
         name: 'article_generate',
         description:
@@ -303,33 +431,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
     tools.push(articleGenerateTool);
 
     const factExtractTool = tool(
-      async (input) => {
-        return runGuarded('fact.extract', input, input.projectId, toolCtx, async () => {
-          // Domain-specific ontology: narrow the fact_type set the extractor
-          // should look for based on project.domain. We pass the narrowed
-          // schema into extractFacts via the `factTypes` option so the LLM
-          // prompt and validation only consider domain-relevant types.
-          const proj = getProjectRow(input.projectId);
-          const relevantFactTypes = getFactTypesForDomain(proj?.domain ?? null);
-
-          const result = await extractFacts({
-            projectId: input.projectId,
-            entryId: input.entryId,
-            chunkIds: input.chunkIds,
-            factTypes: relevantFactTypes,
-          });
-
-          return JSON.stringify(
-            {
-              ...result,
-              domain: proj?.domain ?? null,
-              domainFactTypes: relevantFactTypes ?? 'all',
-            },
-            null,
-            2,
-          );
-        });
-      },
+      async (input) => executeFactExtract(input, toolCtx),
       {
         name: 'fact_extract',
         description:
@@ -340,12 +442,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
     tools.push(factExtractTool);
 
     const claimReviewTool = tool(
-      async (input) => {
-        return runGuarded('claim.review', input, undefined, toolCtx, async () => {
-          const result = await reviewClaims(input.artifactId);
-          return JSON.stringify(result, null, 2);
-        });
-      },
+      async (input) => executeClaimReview(input, toolCtx),
       {
         name: 'claim_review',
         description: '审核文章中的 Claim（断言）是否有足够的事实支持，输出通过/未通过与风险预警。',
@@ -355,12 +452,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
     tools.push(claimReviewTool);
 
     const geoReviewTool = tool(
-      async (input) => {
-        return runGuarded('geo.review', input, undefined, toolCtx, async () => {
-          const result = await reviewGeo(input.artifactId);
-          return JSON.stringify(result, null, 2);
-        });
-      },
+      async (input) => executeGeoReview(input, toolCtx),
       {
         name: 'geo_review',
         description: '审核文章的 GEO 优化质量（结构、可引用性、Schema 等），输出评分与改进建议。',
