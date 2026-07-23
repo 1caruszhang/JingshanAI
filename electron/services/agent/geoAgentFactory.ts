@@ -323,7 +323,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
       const response = await model.invoke([
         {
           role: 'system',
-          content: `${loadPrompt('soul')}\n\n当前未选择项目。请基于通用知识回答用户问题，不要引用具体企业知识库。回答简洁专业。`,
+          content: `${loadPrompt('soul')}\n\n${loadPrompt('qa')}`,
         },
         {role: 'user', content: input.query},
       ]);
