@@ -4,30 +4,22 @@
  * Agent-first Task Runtime — the top-level orchestrator that assembles every
  * Phase 9 sub-module into a complete loop.
  *
+ * After the #62 big-bang cutover the runtime uses a single routing layer:
+ *
  *   user message
- *     → builtin intent match (MVP service-backed capabilities)
- *     → intentRouter.route()                  (skill-dir routing + policy gate)
- *       → 'skill'   → loopGuard → toolGuard → execute skill → confirmation card
- *       → 'blocked' → push policy reason message (no error)
- *       → 'fallback'→ read live project state → decision tree → suggestion
+ *     → intentRouter.route()                       (declarative route table + policy gate)
+ *       → 'skill' kind='md-driven' migrated:true  → runMdDrivenSkill
+ *       → 'skill' kind='md-driven' migrated:false → 「能力升级中」placeholder
+ *       → 'skill' kind='service'                  → SERVICE_EXECUTORS[intent] under toolGuard
+ *       → 'skill' kind='pause'                    → handlePublishPlanPause (approval card)
+ *       → 'blocked'                               → push policy reason message (no error)
+ *       → 'clarify'                               → push a clarify message
+ *       → 'fallback'                              → read live project state → decision tree → suggestion
  *
- * Two routing layers run in order:
- *
- *   1. `matchBuiltinIntent` — keyword rules over the MVP service-backed
- *      capabilities (question.generate, article.generate, fact.extract, …,
- *      publish.plan). These capabilities are not represented as SKILL.md
- *      directories yet, so the skill-dir router cannot reach them. The
- *      builtin table carries its own precondition expressions so the same
- *      `allowedActionPolicy` gate that governs skill dirs governs these too.
- *
- *   2. `intentRouter.route()` — the skill-directory router (rule → semantic →
- *      fallback). Handles the GEO/ranking/support skill dirs that *do* have
- *      SKILL.md definitions.
- *
- * `createGeoAgent` is no longer called for Q&A — it stays in
- * `geoAgentFactory.ts` as the tool-registration entry point, and the runtime
- * invokes skill executors directly via `SKILL_EXECUTORS` so the toolGuard
- * risk gating, ledger audit, and approval cards fire exactly once per skill.
+ * The old dual-path (`matchBuiltinIntent` + skill-dir fallback) is gone; every
+ * intent — service, pause, md-driven — lives in the single `SKILL_ROUTES`
+ * table and is gated by the same `allowedActionPolicy` hook folded into
+ * `route()`.
  *
  * Every state transition writes to `execution_ledger` (via `executionLedger`
  * for task-level events and via `toolGuard` for per-skill tool events), and
@@ -36,208 +28,23 @@
 
 import {getDb} from '../../db/connection.ts';
 import type {AgentTask, AgentTaskStep, StepStatus, StepType} from '@/types/domain';
-import {routeLegacy as route, type RouteContext} from './intentRouter.ts';
+import {route, type RouteResult, type RouteContext} from './intentRouter.ts';
 import {checkLoopGuard} from './loopGuard.ts';
 import * as executionLedger from './executionLedger.ts';
 import {executeWithGuard, type GuardedToolCallResult} from './toolGuard.ts';
 import {
-  SKILL_EXECUTORS,
+  SERVICE_EXECUTORS,
   getProjectRow,
   type AgentToolContext,
   type SkillExecutorArgs,
 } from './geoAgentFactory.ts';
-import {type PolicyContext, type ProjectStateSnapshot} from './allowedActionPolicy.ts';
+import {runMdDrivenSkill} from './mdDrivenRunner.ts';
 
 export interface RunMinimalAgentOptions {
   projectId?: number;
   sessionId?: number;
   title?: string;
 }
-
-// ── Builtin intent table (MVP service-backed capabilities) ───────────────────
-//
-// These capabilities have backing services but no SKILL.md directory yet, so
-// `intentRouter.route()` cannot resolve them. The runtime matches them with
-// keyword rules BEFORE delegating to the skill-dir router, and runs the same
-// `allowedActionPolicy` precondition gate so the policy reason (e.g.
-// "缺少已确认事实") surfaces as a `blocked` result just like skill dirs do.
-//
-// `publish.plan` is the high-risk capability: it has no executor body, so the
-// runtime writes the approval row itself, pauses the task, and pushes a
-// blocking approval card — it never reaches `executeWithGuard`.
-
-interface BuiltinIntent {
-  /** Dotted executor id in SKILL_EXECUTORS, or 'publish.plan' for the pause path. */
-  executorId: string;
-  /** Keyword substrings (lowercased); any match wins. */
-  keywords: string[];
-  /** Precondition expressions, same vocabulary as SKILL.md frontmatter. */
-  preconditions: string[];
-  /** Risk level drives the approval-card behaviour. */
-  riskLevel: 'low' | 'medium' | 'high';
-}
-
-const BUILTIN_INTENTS: BuiltinIntent[] = [
-  {
-    executorId: 'question.generate',
-    keywords: ['生成问题', '问题池', '问题列表', '目标问题', 'generate question', 'question pool'],
-    preconditions: ['confirmed_facts_count > 0'],
-    riskLevel: 'low',
-  },
-  {
-    executorId: 'article.generate',
-    keywords: ['生成文章', '写文章', '文章生成', 'generate article', 'write article', '排行榜文章', '支持类文章'],
-    preconditions: ['confirmed_facts_count > 0', 'selected_question_exists'],
-    riskLevel: 'low',
-  },
-  {
-    executorId: 'fact.extract',
-    keywords: ['抽取事实', '事实抽取', 'extract fact', '抽取企业事实'],
-    preconditions: ['has_knowledge_entries'],
-    riskLevel: 'low',
-  },
-  {
-    executorId: 'source.discover',
-    keywords: ['信源', '参考信源', '发现信源', 'source discover', '推荐信源'],
-    preconditions: ['selected_question_exists'],
-    riskLevel: 'low',
-  },
-  {
-    executorId: 'claim.review',
-    keywords: ['claim 审核', '断言审核', '审核断言', 'claim review'],
-    preconditions: [],
-    riskLevel: 'low',
-  },
-  {
-    executorId: 'geo.review',
-    keywords: ['geo 审核', 'geo review', 'geo 优化审核', 'geo 质量审核'],
-    preconditions: [],
-    riskLevel: 'low',
-  },
-  {
-    executorId: 'publish.plan',
-    keywords: ['发布计划', '准备发布', 'publish plan', 'publish.plan', '发布审批'],
-    preconditions: ['has_approved_draft'],
-    riskLevel: 'high',
-  },
-];
-
-interface BuiltinMatch {
-  intent: BuiltinIntent;
-  blockedReason: string | null;
-}
-
-/**
- * Keyword-matches the user message against the builtin intent table. Returns
- * the first matching intent (precedence = table order), or null.
- *
- * `blockedReason` is non-null when the intent's preconditions are not
- * satisfied against the live project state — the caller surfaces it exactly
- * like a skill-dir `blocked` route.
- */
-function matchBuiltinIntent(
-  userMessage: string,
-  policyContext: PolicyContext,
-): BuiltinMatch | null {
-  const lower = userMessage.toLowerCase();
-  for (const intent of BUILTIN_INTENTS) {
-    if (!intent.keywords.some((kw) => lower.includes(kw.toLowerCase()))) continue;
-
-    // Evaluate preconditions using the same policy as skill dirs.
-    let blockedReason: string | null = null;
-    for (const expr of intent.preconditions) {
-      blockedReason = evaluatePreconditionAgainstProject(expr, policyContext);
-      if (blockedReason !== null) break;
-    }
-    return {intent, blockedReason};
-  }
-  return null;
-}
-
-// Reads a ProjectStateSnapshot for builtin-intent precondition gating.
-// Mirrors allowedActionPolicy's default snapshot provider; the evaluator
-// itself is re-implemented inline below because allowedActionPolicy does not
-// export evaluatePrecondition. Both must stay in sync with the policy's four
-// supported expression shapes (fail-open for anything else).
-function readProjectSnapshotForPolicy(projectId: number | null): ProjectStateSnapshot {
-  if (projectId === null) {
-    return {
-      confirmedFactsCount: 0,
-      hasSelectedQuestion: false,
-      hasKnowledgeEntries: false,
-      hasApprovedDraft: false,
-    };
-  }
-  const db = getDb();
-  const hit = (sql: string): boolean =>
-    db.prepare(sql).get(projectId) !== undefined;
-
-  const confirmedFactsRow = db
-    .prepare(
-      "SELECT COUNT(*) AS cnt FROM enterprise_facts WHERE project_id = ? AND status = 'confirmed'",
-    )
-    .get(projectId) as {cnt: number} | undefined;
-
-  return {
-    confirmedFactsCount: confirmedFactsRow?.cnt ?? 0,
-    hasSelectedQuestion: hit(
-      "SELECT 1 AS hit FROM question_pools WHERE project_id = ? AND status = 'selected' LIMIT 1",
-    ),
-    hasKnowledgeEntries: hit('SELECT 1 AS hit FROM knowledge_entries WHERE project_id = ? LIMIT 1'),
-    hasApprovedDraft: hit(
-      "SELECT 1 AS hit FROM agent_artifacts WHERE project_id = ? AND status = 'approved' LIMIT 1",
-    ),
-  };
-}
-
-/**
- * Evaluates a single precondition expression against the live project state.
- * Mirrors allowedActionPolicy.evaluatePrecondition's four supported shapes
- * (fail-open for anything else) so builtin intents are gated identically to
- * skill dirs without reaching into the policy module's private evaluator.
- */
-function evaluatePreconditionAgainstProject(
-  expr: string,
-  context: PolicyContext,
-): string | null {
-  const trimmed = expr.trim();
-  const projectId =
-    typeof context.projectId === 'number' && Number.isFinite(context.projectId)
-      ? context.projectId
-      : null;
-  const s = readProjectSnapshotForPolicy(projectId);
-
-  if (trimmed === 'confirmed_facts_count > 0' || trimmed === 'confirmed_facts_count >= 1') {
-    return s.confirmedFactsCount === 0 ? '当前项目缺少已确认事实，请先完成事实抽取和确认' : null;
-  }
-  if (trimmed === 'selected_question_exists') {
-    return !s.hasSelectedQuestion ? '当前项目缺少已选定的目标问题，请先在问题池中选定至少一个问题' : null;
-  }
-  if (trimmed === 'has_knowledge_entries') {
-    return !s.hasKnowledgeEntries ? '当前项目缺少知识库条目，请先录入企业资料' : null;
-  }
-  if (trimmed === 'has_approved_draft') {
-    return !s.hasApprovedDraft ? '当前项目缺少已审核通过的文章草稿' : null;
-  }
-  // Unknown expression — fail-open (matches allowedActionPolicy behaviour).
-  return null;
-}
-
-// ── Skill directory → dotted executor id ────────────────────────────────────
-//
-// intentRouter resolves user messages to Skill **directory names** (the
-// `name` field in SKILL.md frontmatter, e.g. `ranking-article-generation`).
-// The executors registered in `SKILL_EXECUTORS` are keyed by the dotted
-// capability identifiers used throughout the codebase. This map bridges the
-// two vocabularies for the skill dirs that have a backing service.
-//
-// Skill dirs without an entry here have no executor yet; the runtime falls
-// back to a graceful "能力暂未接入" message instead of throwing.
-const SKILL_DIR_TO_EXECUTOR: Record<string, string> = {
-  'ranking-article-generation': 'article.generate',
-  'support-article-generation': 'article.generate',
-  'support-article-planning': 'article.generate',
-};
 
 // ── Project state snapshot for status diagnosis ─────────────────────────────
 
@@ -528,21 +335,26 @@ function writeResponseArtifact(
 // ── Route-result handlers ────────────────────────────────────────────────────
 
 /**
- * Executes a routed skill under the toolGuard policy and finalizes the task.
+ * Dispatches a `{type:'skill'}` RouteResult by its `kind`, after the loop
+ * guard passes:
  *
- *   - loopGuard must pass before any execution.
- *   - high-risk skills (publish.plan) leave the task in `waiting_approval`
- *     with a blocking approval card; the runtime returns without continuing.
- *   - medium/low skills execute, push an informational confirmation card, and
- *     the task completes with the skill result as the response artifact.
- *   - failure / rejection finalizes the task as `failed`.
+ *   - `md-driven` + `migrated:true`  → runMdDrivenSkill
+ *   - `md-driven` + `migrated:false` → 「能力升级中，暂未接入新框架」placeholder
+ *   - `service`                       → SERVICE_EXECUTORS[intent] under toolGuard
+ *   - `pause`                         → handlePublishPlanPause (approval card)
+ *
+ * For service intents without a registered executor (e.g. `claim.parsing`,
+ * which has no backing service yet), a graceful「暂未接入执行后端」message is
+ * surfaced — same behaviour the old skill-dir fallback used for unwired dirs.
  */
 async function handleSkillRoute(
   ctx: TaskContext,
-  skillName: string,
-  params: Record<string, unknown>,
+  routeResult: Extract<RouteResult, {type: 'skill'}>,
+  userGoal: string,
 ): Promise<void> {
-  // 1. Loop guard — checked before any skill execution.
+  const {kind, skillName, params} = routeResult;
+
+  // 1. Loop guard — checked before any execution.
   const guard = checkLoopGuard(ctx.taskId, ctx.loopCount);
   if (!guard.allowed) {
     const reason = guard.reason ?? '循环保护已触发，Agent 已停止';
@@ -556,48 +368,179 @@ async function handleSkillRoute(
     return;
   }
 
-  // 2. Resolve the executor for this skill. The router returns a skill
-  //    directory name; map it to a dotted executor id. If no executor is
-  //    registered, surface a graceful message instead of throwing.
-  const executorId = SKILL_DIR_TO_EXECUTOR[skillName] ?? skillName;
-  const executor = SKILL_EXECUTORS[executorId];
-  if (!executor) {
-    const msg = `已识别到「${skillName}」能力，但该能力暂未接入执行后端。你可以稍后再试，或换一种方式描述需求。`;
-    await executionLedger.append(ctx.taskId, 'skill_not_wired', {skillName, executorId});
-    pushAgentMessage(ctx.sessionId, ctx.projectId, msg);
-    ctx.writeStep({
-      stepType: 'skill_call',
-      actionName: skillName,
-      status: 'completed',
-      inputJson: JSON.stringify({skillName}),
-      outputJson: JSON.stringify({skipped: true, reason: 'no_executor'}),
-    });
-    writeResponseArtifact(ctx.taskId, ctx.projectId, 'Agent 回答', msg);
-    ctx.updateTask({status: 'completed', current_objective: '已完成（能力暂未接入）', last_action: skillName, completed_at: new Date().toISOString()});
+  // 2. Dispatch by kind.
+  if (kind === 'pause') {
+    // publish.plan — high-risk pause path (no executor body).
+    await handlePublishPlanPause(ctx, params);
     return;
   }
 
-  await runExecutor(ctx, executorId, executor, params);
+  if (kind === 'service') {
+    const executor = SERVICE_EXECUTORS[skillName];
+    if (!executor) {
+      const msg = `已识别到「${skillName}」能力，但该能力暂未接入执行后端。你可以稍后再试，或换一种方式描述需求。`;
+      await executionLedger.append(ctx.taskId, 'skill_not_wired', {skillName});
+      pushAgentMessage(ctx.sessionId, ctx.projectId, msg);
+      ctx.writeStep({
+        stepType: 'skill_call',
+        actionName: skillName,
+        status: 'completed',
+        inputJson: JSON.stringify({skillName}),
+        outputJson: JSON.stringify({skipped: true, reason: 'no_executor'}),
+      });
+      writeResponseArtifact(ctx.taskId, ctx.projectId, 'Agent 回答', msg);
+      ctx.updateTask({status: 'completed', current_objective: '已完成（能力暂未接入）', last_action: skillName, completed_at: new Date().toISOString()});
+      return;
+    }
+    await runServiceExecutor(ctx, skillName, executor, params);
+    return;
+  }
+
+  // kind === 'md-driven'
+  if (routeResult.migrated) {
+    await runMigratedSkill(ctx, skillName, userGoal, params);
+  } else {
+    await handleUnmigratedSkill(ctx, skillName);
+  }
 }
 
 /**
- * Executes a builtin intent's executor (or the publish.plan pause path) under
- * the toolGuard policy. Shared by the builtin-intent match and the skill-dir
- * route so both paths get identical guard + ledger + card behaviour.
+ * Runs a migrated md-driven skill via the md-driven runtime (#59). Maps the
+ * runtime's task context (projectId + user goal + route params) into
+ * `runMdDrivenSkill` options, then adopts the validated output as the task
+ * response artifact. On validation failure the task is finalized as failed
+ * with the validator errors surfaced to the user.
  */
-async function runExecutor(
+async function runMigratedSkill(
+  ctx: TaskContext,
+  skillDir: string,
+  userGoal: string,
+  params: Record<string, unknown>,
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+  const skillStepId = ctx.addStep({
+    step_type: 'skill_call',
+    action_name: skillDir,
+    status: 'running',
+    input_json: JSON.stringify({skillName: skillDir, params}),
+    attempt_count: 1,
+    max_attempts: 1,
+    started_at: nowIso,
+  });
+
+  ctx.updateTask({current_objective: `执行技能 ${skillDir}`, last_action: skillDir});
+
+  const taskArgs: Record<string, unknown> = {
+    projectId: ctx.projectId ?? undefined,
+    targetQuestion: typeof params.targetQuestion === 'string' ? params.targetQuestion : undefined,
+    title: typeof params.title === 'string' ? params.title : undefined,
+    strategy:
+      params.strategy === 'support_article' || params.strategy === 'ranking_article'
+        ? params.strategy
+        : undefined,
+    ...params,
+  };
+
+  let result;
+  try {
+    result = await runMdDrivenSkill(skillDir, {
+      projectId: ctx.projectId ?? undefined,
+      taskArgs,
+      userMessage: userGoal,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    finalizeSkillFailure(ctx, skillDir, params, 'failed', message);
+    return;
+  }
+
+  if (!result.ok) {
+    const detail = result.errors.join('; ');
+    completeStep(skillStepId, {
+      status: 'failed',
+      output_json: JSON.stringify({errors: result.errors}),
+    });
+    const msg = `「${skillDir}」执行失败：${detail}`;
+    pushAgentMessage(ctx.sessionId, ctx.projectId, msg);
+    writeResponseArtifact(ctx.taskId, ctx.projectId, 'Agent 回答', msg);
+    ctx.writeStep({
+      stepType: 'final_response',
+      actionName: 'answer_user',
+      status: 'failed',
+      inputJson: JSON.stringify({skillName: skillDir}),
+      outputJson: JSON.stringify({errors: result.errors}),
+    });
+    ctx.updateTask({status: 'failed', current_objective: `失败：${detail}`, last_action: skillDir});
+    return;
+  }
+
+  const resultText = JSON.stringify(result.data, null, 2);
+  const completedIso = new Date().toISOString();
+  completeStep(skillStepId, {
+    status: 'completed',
+    output_json: JSON.stringify({result: resultText}),
+  });
+
+  const messageId = pushAgentMessage(ctx.sessionId, ctx.projectId, `「${skillDir}」执行完成。`);
+  if (messageId != null) {
+    pushApprovalCard(messageId, skillDir, JSON.stringify(params), null, true);
+  }
+
+  ctx.writeStep({
+    stepType: 'final_response',
+    actionName: 'answer_user',
+    status: 'completed',
+    inputJson: JSON.stringify({skillName: skillDir}),
+    outputJson: JSON.stringify({answer: resultText}),
+  });
+
+  writeResponseArtifact(ctx.taskId, ctx.projectId, 'Agent 回答', resultText);
+  ctx.updateTask({
+    status: 'completed',
+    current_objective: '已完成技能执行',
+    last_action: skillDir,
+    completed_at: completedIso,
+  });
+}
+
+/**
+ * Surfaces the「能力升级中，暂未接入新框架」placeholder for an md-driven skill
+ * that has not been sliced onto the md-driven runtime yet. The skill is
+ * recognised but not executed; the task completes gracefully.
+ */
+async function handleUnmigratedSkill(
+  ctx: TaskContext,
+  skillDir: string,
+): Promise<void> {
+  const msg = `已识别到「${skillDir}」能力，该能力正在升级中，暂未接入新框架。你可以稍后再试，或换一种方式描述需求。`;
+  await executionLedger.append(ctx.taskId, 'skill_not_migrated', {skillName: skillDir});
+  pushAgentMessage(ctx.sessionId, ctx.projectId, msg);
+  ctx.writeStep({
+    stepType: 'skill_call',
+    actionName: skillDir,
+    status: 'completed',
+    inputJson: JSON.stringify({skillName: skillDir}),
+    outputJson: JSON.stringify({skipped: true, reason: 'not_migrated'}),
+  });
+  writeResponseArtifact(ctx.taskId, ctx.projectId, 'Agent 回答', msg);
+  ctx.updateTask({
+    status: 'completed',
+    current_objective: '已完成（能力升级中）',
+    last_action: skillDir,
+    completed_at: new Date().toISOString(),
+  });
+}
+
+/**
+ * Executes a service-kind intent's executor under the toolGuard policy.
+ * Identical guard + ledger + card behaviour to the pre-cutover path.
+ */
+async function runServiceExecutor(
   ctx: TaskContext,
   executorId: string,
   executor: (args: SkillExecutorArgs, toolCtx: AgentToolContext) => Promise<string>,
   params: Record<string, unknown>,
 ): Promise<void> {
-  // High-risk capabilities pause for user approval before any executor runs.
-  // publish.plan has no executor body — the pause IS the behaviour.
-  if (executorId === 'publish.plan') {
-    await handlePublishPlanPause(ctx, params);
-    return;
-  }
-
   const nowIso = new Date().toISOString();
 
   // Record the skill_call step.
@@ -828,6 +771,37 @@ async function handleFallbackRoute(ctx: TaskContext): Promise<void> {
   });
 }
 
+/**
+ * Tier 2 semantic match produced low-confidence candidates (≥ 0.3, < 0.6).
+ * Surface them as a clarify message so the user can pick or rephrase.
+ */
+async function handleClarifyRoute(
+  ctx: TaskContext,
+  candidates: {intent: string; confidence: number}[],
+): Promise<void> {
+  const list = candidates.map((c) => `「${c.intent}」（置信度 ${c.confidence.toFixed(2)}）`).join('、');
+  const msg = `我不太确定你的具体意图，候选能力包括：${list}。请补充说明或换一种方式描述需求。`;
+
+  await executionLedger.append(ctx.taskId, 'route_clarify', {candidates});
+  pushAgentMessage(ctx.sessionId, ctx.projectId, msg);
+
+  ctx.writeStep({
+    stepType: 'final_response',
+    actionName: 'clarify',
+    status: 'completed',
+    inputJson: JSON.stringify({candidates}),
+    outputJson: JSON.stringify({msg}),
+  });
+
+  writeResponseArtifact(ctx.taskId, ctx.projectId, 'Agent 回答', msg);
+  ctx.updateTask({
+    status: 'completed',
+    current_objective: '已完成（需澄清）',
+    last_action: 'clarify',
+    completed_at: new Date().toISOString(),
+  });
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 export async function runMinimalAgentTask(
@@ -894,40 +868,12 @@ export async function runMinimalAgentTask(
     });
 
     const project = options.projectId ? getProjectRow(options.projectId) : null;
-    const policyContext: PolicyContext = {
-      projectId: options.projectId ?? null,
-      projectDomain: project?.domain ?? null,
-    };
 
     updateTask({current_objective: '路由用户意图'});
 
-    // 1. Builtin intent match (service-backed capabilities without SKILL.md).
-    const builtin = matchBuiltinIntent(userGoal, policyContext);
-    if (builtin) {
-      if (builtin.blockedReason !== null) {
-        completeStep(planStepId, {
-          status: 'completed',
-          output_json: JSON.stringify({route: {type: 'blocked', skillName: builtin.intent.executorId}}),
-        });
-        await executionLedger.append(taskId, 'route_blocked', {
-          skillName: builtin.intent.executorId,
-          reason: builtin.blockedReason,
-        });
-        await handleBlockedRoute(ctx, builtin.intent.executorId, builtin.blockedReason);
-      } else {
-        completeStep(planStepId, {
-          status: 'completed',
-          output_json: JSON.stringify({route: {type: 'skill', skillName: builtin.intent.executorId}}),
-        });
-        await executionLedger.append(taskId, 'route_resolved', {
-          route: {type: 'builtin_skill', skillName: builtin.intent.executorId},
-        });
-        await runExecutor(ctx, builtin.intent.executorId, SKILL_EXECUTORS[builtin.intent.executorId], {});
-      }
-      return db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(taskId) as AgentTask;
-    }
-
-    // 2. Skill-directory router (rule → semantic → fallback).
+    // Single routing layer (post-#62 cutover): the declarative SKILL_ROUTES
+    // table covers every intent — service, pause, md-driven — and the policy
+    // gate is folded into route() via blockHookForRoute.
     const routeContext: RouteContext = {
       projectId: options.projectId,
       projectDomain: project?.domain ?? null,
@@ -941,9 +887,11 @@ export async function runMinimalAgentTask(
     await executionLedger.append(taskId, 'route_resolved', {route: routeResult});
 
     if (routeResult.type === 'skill') {
-      await handleSkillRoute(ctx, routeResult.skillName, routeResult.params);
+      await handleSkillRoute(ctx, routeResult, userGoal);
     } else if (routeResult.type === 'blocked') {
       await handleBlockedRoute(ctx, routeResult.skillName, routeResult.reason);
+    } else if (routeResult.type === 'clarify') {
+      await handleClarifyRoute(ctx, routeResult.candidates);
     } else {
       await handleFallbackRoute(ctx);
     }

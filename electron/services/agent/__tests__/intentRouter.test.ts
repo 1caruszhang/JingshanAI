@@ -37,13 +37,13 @@ function mockChatFn(response: {intent: string | null; confidence: number}): Chat
 }
 
 describe('SKILL_ROUTES table', () => {
-  it('has 23 entries: 17 md-driven + 5 service + 1 pause', () => {
-    assert.equal(SKILL_ROUTES.length, 23);
+  it('has 24 entries: 17 md-driven + 6 service + 1 pause', () => {
+    assert.equal(SKILL_ROUTES.length, 24);
     const mdDriven = SKILL_ROUTES.filter((r) => r.kind === 'md-driven');
     const service = SKILL_ROUTES.filter((r) => r.kind === 'service');
     const pause = SKILL_ROUTES.filter((r) => r.kind === 'pause');
     assert.equal(mdDriven.length, 17);
-    assert.equal(service.length, 5);
+    assert.equal(service.length, 6);
     assert.equal(pause.length, 1);
   });
 

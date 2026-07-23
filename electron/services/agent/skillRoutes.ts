@@ -12,10 +12,11 @@
  *     by the md-driven runtime (#53/#55). 17 rows. Two of them
  *     (`title-generation`, `ranking-article-generation`) are already sliced
  *     onto the md-driven runtime and carry `migrated: true`; the remaining 15
- *     stay on the legacy executor path until the cutover ticket (#62).
- *   - `service` — a pure service/tool intent with no SKILL.md body (fact
- *     extraction, source discovery, claim parsing, claim review, geo review).
- *     5 rows.
+ *     stay unmigrated (return the「能力升级中」placeholder) after the cutover
+ *     ticket (#62).
+ *   - `service` — a pure service/tool intent with no SKILL.md body (question
+ *     generation, fact extraction, source discovery, claim parsing, claim
+ *     review, geo review). 6 rows.
  *   - `pause` — the single high-risk pause intent `publish.plan`, which has no
  *     executor body: the runtime writes an approval row and pauses. 1 row.
  *
@@ -35,9 +36,9 @@ export type RouteKind = 'md-driven' | 'service' | 'pause';
 /**
  * One row of the declarative routing table.
  *
- * `intent` is the stable dotted identifier (== SKILL_EXECUTORS key for service
- * intents, == skill directory name for md-driven intents, == `publish.plan`
- * for the pause intent). `skillDir` is the skills/ directory the row resolves
+ * `intent` is the stable dotted identifier (== SERVICE_EXECUTORS key for
+ * service intents, == skill directory name for md-driven intents, ==
+ * `publish.plan` for the pause intent). `skillDir` is the skills/ directory the row resolves
  * to (undefined for service/pause intents that have no SKILL.md).
  */
 export interface SkillRoute {
@@ -63,7 +64,7 @@ export interface SkillRoute {
   migrated: boolean;
 }
 
-// ── Table (23 intents: 17 md-driven + 5 service + 1 pause) ───────────────────
+// ── Table (24 intents: 17 md-driven + 6 service + 1 pause) ───────────────────
 
 export const SKILL_ROUTES: readonly SkillRoute[] = [
   // ── A-class: 17 md-driven skills ──────────────────────────────────────────
@@ -254,7 +255,16 @@ export const SKILL_ROUTES: readonly SkillRoute[] = [
     migrated: false,
   },
 
-  // ── B-class: 5 service intents (no SKILL.md body) ─────────────────────────
+  // ── B-class: 6 service intents (no SKILL.md body) ─────────────────────────
+  {
+    intent: 'question.generate',
+    kind: 'service',
+    trigger: '基于企业已确认事实，生成 5–10 个用户最可能向 AI 提问的目标问题并评分',
+    keywords: ['生成问题', '问题池', '问题列表', '目标问题', 'generate question', 'question pool'],
+    preconditions: ['confirmed_facts_count > 0'],
+    riskLevel: 'low',
+    migrated: false,
+  },
   {
     intent: 'fact.extract',
     kind: 'service',
