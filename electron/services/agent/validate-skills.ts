@@ -62,6 +62,15 @@ const EXPECTED_SKILLS = [
   'ranking-theme-selection',
   'title-generation',
   'claim-source-mapping',
+  // Migrated geo_skills (Issue #25)
+  'geo-content-optimizer',
+  'geo-fact-checker',
+  'geo-structured-writer',
+  'geo-citation-writer',
+  'geo-schema-gen',
+  'geo-sentiment-optimizer',
+  'geo-local-optimizer',
+  'geo-multilingual-optimizer',
 ];
 
 console.log('── Coverage check ───────────────────────────────────────────────');
@@ -119,6 +128,33 @@ for (const skill of skills) {
   test(`${prefix} requires_confirmation is boolean`, () => {
     assert(typeof fm.requires_confirmation === 'boolean',
       `requires_confirmation must be boolean, got ${typeof fm.requires_confirmation}`);
+  });
+}
+
+// ── Issue #25 acceptance: geo-local-optimizer is local_service only ──────────
+
+console.log('\n── Issue #25 acceptance checks ──────────────────────────────────');
+
+test(`[geo-local-optimizer] domains is exactly ['local_service']`, () => {
+  const skill = skills.find((s) => s.dirName === 'geo-local-optimizer');
+  assert(skill !== undefined, 'geo-local-optimizer not loaded');
+  const domains = skill!.frontmatter.domains;
+  assert(
+    domains.length === 1 && domains[0] === 'local_service',
+    `expected domains ['local_service'], got ${JSON.stringify(domains)}`,
+  );
+});
+
+// Migrated geo skills must carry T2-schema descriptions suitable for semantic
+// routing (schema doc recommends 50–150 chars). Derived from EXPECTED_SKILLS.
+const GEO_SKILLS = EXPECTED_SKILLS.filter((name) => name.startsWith('geo-'));
+
+for (const name of GEO_SKILLS) {
+  test(`[${name}] description length within 50–150 chars`, () => {
+    const skill = skills.find((s) => s.dirName === name);
+    assert(skill !== undefined, `${name} not loaded`);
+    const len = skill!.frontmatter.description.length;
+    assert(len >= 50 && len <= 150, `description is ${len} chars (expected 50–150)`);
   });
 }
 
