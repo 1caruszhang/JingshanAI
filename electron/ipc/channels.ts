@@ -17,6 +17,7 @@ import type {
   RankingArticleParams,
   ReflectionHypothesis,
   SourceRecommendation,
+  SourceDecision,
   TitleCandidate,
   ToolApproval,
   VisibilityCheck,
@@ -220,6 +221,7 @@ export interface IpcChannels {
     supportArticleType?: string;
     targetQuestion: string;
     title?: string;
+    adoptedSources?: SourceRecommendation[];
   }) => {artifact: AgentArtifact; meta: ArticleArtifactMeta; claims: ArticleClaim[]};
 
   'article:list': (projectId: number) => Array<{artifact: AgentArtifact; meta: ArticleArtifactMeta}>;
@@ -245,6 +247,22 @@ export interface IpcChannels {
   'question:select': (id: number) => void;
   'question:reject': (id: number) => void;
   'source:discover': (projectId: number, targetQuestion: string) => SourceRecommendation[];
+  'source:adopt': (
+    projectId: number,
+    targetQuestion: string,
+    source: SourceRecommendation,
+  ) => void;
+  'source:skip': (
+    projectId: number,
+    targetQuestion: string,
+    source: SourceRecommendation,
+  ) => void;
+  'source:listDecisions': (
+    projectId: number,
+    targetQuestion: string,
+  ) => SourceDecision[];
+  'source:clearDecisions': (projectId: number, targetQuestion: string) => void;
+  'source:removeDecision': (projectId: number, targetQuestion: string, url: string) => void;
   'title:generate': (projectId: number, targetQuestion: string) => TitleCandidate[];
   'article:generateRanking': (params: RankingArticleParams) => ArticleGenerateResult;
 

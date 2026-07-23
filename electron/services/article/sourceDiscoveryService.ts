@@ -1,7 +1,7 @@
 import {chat} from '../llmService.ts';
 import {getProject} from '../projectService.ts';
 import {getDb} from '../../db/connection.ts';
-import type {SourceRecommendation} from '@/types/domain';
+import type {SourceDecision, SourceRecommendation} from '@/types/domain';
 
 const SYSTEM_PROMPT = `你是企业 GEO 优化顾问。基于目标问题和行业背景，推荐 3-5 个高质量外部参考信源。
 要求：
@@ -88,4 +88,61 @@ export async function discoverSources(
   }
 
   return sources;
+}
+
+// ── Source decision persistence (source_decisions table) ─────────────────────
+//
+// SourceDiscoveryView 的「采用 / 跳过」决策以 project_id + target_question +
+// url 为唯一键持久化，便于用户重新进入视图时恢复状态。upsert 使用 INSERT …
+// ON CONFLICT … DO UPDATE，使 adopt/skip 之间可互相切换。
+
+export function upsertSourceDecision(
+  projectId: number,
+  targetQuestion: string,
+  source: SourceRecommendation,
+  decision: 'adopted' | 'skipped',
+): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO source_decisions
+       (project_id, target_question, url, title, relevance_reason, decision, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(project_id, target_question, url) DO UPDATE SET
+       title = excluded.title,
+       relevance_reason = excluded.relevance_reason,
+       decision = excluded.decision,
+       updated_at = datetime('now')`,
+  ).run(projectId, targetQuestion, source.url, source.title, source.relevanceReason, decision);
+}
+
+export function listSourceDecisions(
+  projectId: number,
+  targetQuestion: string,
+): SourceDecision[] {
+  const db = getDb();
+  return db
+    .prepare(
+      `SELECT * FROM source_decisions
+       WHERE project_id = ? AND target_question = ?
+       ORDER BY updated_at ASC`,
+    )
+    .all(projectId, targetQuestion) as SourceDecision[];
+}
+
+export function clearSourceDecisions(projectId: number, targetQuestion: string): void {
+  const db = getDb();
+  db.prepare(
+    `DELETE FROM source_decisions WHERE project_id = ? AND target_question = ?`,
+  ).run(projectId, targetQuestion);
+}
+
+/**
+ * Removes a single source decision (by project + question + url). Used when a
+ * user toggles an adopted/skipped source back to undecided.
+ */
+export function removeSourceDecision(projectId: number, targetQuestion: string, url: string): void {
+  const db = getDb();
+  db.prepare(
+    `DELETE FROM source_decisions WHERE project_id = ? AND target_question = ? AND url = ?`,
+  ).run(projectId, targetQuestion, url);
 }

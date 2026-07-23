@@ -6,7 +6,7 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {useTheme} from '@/hooks/use-theme';
 import {useView} from '@/context/ViewContext';
 import {useAppState} from '@/context/AppStateContext';
-import {questionApi} from '@/lib/electron-api';
+import {questionService} from '@/services/questionService';
 import {cn} from '@/lib/utils';
 import {HelpCircle, Loader2, Check, X} from 'lucide-react';
 import type {QuestionPoolItem} from '@/types/domain';
@@ -28,7 +28,7 @@ export default function QuestionPoolView() {
       return;
     }
     setInitialLoading(true);
-    questionApi
+    questionService
       .list(currentProject.id)
       .then((items) => {
         setQuestions((items as QuestionPoolItem[]) ?? []);
@@ -42,7 +42,7 @@ export default function QuestionPoolView() {
     setLoading(true);
     setError(null);
     try {
-      const items = await questionApi.generate(currentProject.id);
+      const items = await questionService.generate(currentProject.id);
       setQuestions((items as QuestionPoolItem[]) ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -54,7 +54,7 @@ export default function QuestionPoolView() {
   const handleSelect = async (item: QuestionPoolItem) => {
     setActioningId(item.id);
     try {
-      await questionApi.select(item.id);
+      await questionService.select(item.id);
       setQuestions((prev) =>
         prev.map((q) => (q.id === item.id ? {...q, status: 'selected'} : q)),
       );
@@ -68,7 +68,7 @@ export default function QuestionPoolView() {
   const handleReject = async (item: QuestionPoolItem) => {
     setActioningId(item.id);
     try {
-      await questionApi.reject(item.id);
+      await questionService.reject(item.id);
       setQuestions((prev) =>
         prev.map((q) => (q.id === item.id ? {...q, status: 'rejected'} : q)),
       );

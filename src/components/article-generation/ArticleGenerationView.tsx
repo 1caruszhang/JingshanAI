@@ -13,10 +13,11 @@ import {
 import {useTheme} from '@/hooks/use-theme';
 import {useView} from '@/context/ViewContext';
 import {useAppState} from '@/context/AppStateContext';
-import {articleApi} from '@/lib/electron-api';
+import {articleService} from '@/services/articleService';
 import {cn} from '@/lib/utils';
-import {Sparkles, Loader2, FileText, X} from 'lucide-react';
+import {Sparkles, Loader2, FileText, X, Link2} from 'lucide-react';
 import TitlePickerStep from './TitlePickerStep';
+import type {SourceRecommendation} from '@/types/domain';
 
 const SUPPORT_ARTICLE_TYPES = [
   {value: 'enterprise_profile', labelZh: '企业介绍', labelEn: 'Enterprise Profile'},
@@ -47,6 +48,10 @@ export default function ArticleGenerationView() {
   const preselectedQuestion = viewParams.selectedQuestion as string | undefined;
   const [targetQuestion, setTargetQuestion] = useState('');
   const effectiveQuestion = preselectedQuestion ?? targetQuestion;
+
+  // Adopted sources passed from SourceDiscoveryView — used as reference
+  // material and persisted to the article's source_recommendation meta.
+  const adoptedSources = (viewParams.adoptedSources as SourceRecommendation[] | undefined) ?? [];
 
   const defaultQuestion = useMemo(() => {
     if (currentProject) {
@@ -90,24 +95,25 @@ export default function ArticleGenerationView() {
     setError(null);
     try {
       if (strategy === 'ranking_article') {
-        await articleApi.generateRanking({
+        await articleService.generateRanking({
           projectId: currentProject.id,
           competitors,
           targetQuestion: effectiveQuestion.trim() || defaultQuestion,
         });
       } else {
-        await articleApi.generate({
+        await articleService.generate({
           projectId: currentProject.id,
           strategy: 'support_article' as const,
           supportArticleType: supportType,
           targetQuestion: effectiveQuestion.trim() || defaultQuestion,
           title: selectedTitle || undefined,
+          adoptedSources: adoptedSources.length > 0 ? adoptedSources : undefined,
         });
       }
       navigateTo('drafts');
     } catch (err) {
       console.error('Article generation failed:', err);
-      setError(err instanceof Error ? err.message : '生成失败');
+      setError(err instanceof Error ? err.message : (t.articleGenerateFailed ?? '生成失败'));
     } finally {
       setLoading(false);
     }
@@ -255,6 +261,36 @@ export default function ArticleGenerationView() {
               onSelect={setSelectedTitle}
               selectedTitle={selectedTitle}
             />
+          </div>
+        )}
+
+        {/* Adopted sources summary (from SourceDiscoveryView) */}
+        {adoptedSources.length > 0 && (
+          <div className={cn('rounded-lg p-3 space-y-1.5', cls('bg-gray-50 border border-gray-200', 'bg-zinc-800/50 border-zinc-700'))}>
+            <div className="flex items-center gap-1.5">
+              <Link2 className={cn('w-3.5 h-3.5', cls('text-gray-500', 'text-zinc-400'))} />
+              <span className={cn('text-xs font-medium', cls('text-gray-600', 'text-zinc-300'))}>
+                {t.articleAdoptedSources ?? '参考信源'}
+                <span className={cn('ml-1', cls('text-gray-400', 'text-zinc-500'))}>· {adoptedSources.length}</span>
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {adoptedSources.map((s) => (
+                <a
+                  key={s.url}
+                  href={s.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className={cn(
+                    'text-xs px-2 py-0.5 rounded-md truncate max-w-[200px]',
+                    cls('bg-white text-blue-600 border border-gray-200 hover:bg-blue-50', 'bg-zinc-900 text-blue-400 border-zinc-700 hover:bg-blue-500/10'),
+                  )}
+                  title={s.url}
+                >
+                  {s.title || s.url}
+                </a>
+              ))}
+            </div>
           </div>
         )}
 

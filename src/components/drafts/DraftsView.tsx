@@ -5,7 +5,7 @@ import {Badge} from '@/components/ui/badge';
 import {useTheme} from '@/hooks/use-theme';
 import {useView} from '@/context/ViewContext';
 import {useAppState} from '@/context/AppStateContext';
-import {articleApi} from '@/lib/electron-api';
+import {articleService} from '@/services/articleService';
 import {cn} from '@/lib/utils';
 import {FileText, Plus, Loader2, ShieldCheck, Sparkles, Eye} from 'lucide-react';
 import type {AgentArtifact, ArticleArtifactMeta} from '@/types/domain';
@@ -42,11 +42,11 @@ export default function DraftsView() {
     setLoading(true);
     setError(null);
     try {
-      const data = await articleApi.list(currentProject.id);
+      const data = await articleService.list(currentProject.id);
       setArticles(data);
     } catch (err) {
       console.error('Failed to load articles:', err);
-      setError(err instanceof Error ? err.message : '加载失败');
+      setError(err instanceof Error ? err.message : (t.loadFailed ?? '加载失败'));
     } finally {
       setLoading(false);
     }
@@ -60,7 +60,7 @@ export default function DraftsView() {
         pollingRef.current = setInterval(async () => {
           if (!currentProject) return;
           try {
-            const data = await articleApi.list(currentProject.id);
+            const data = await articleService.list(currentProject.id);
             setArticles(data);
             const stillGenerating = data.some(({meta}) => meta.status === 'generating');
             if (!stillGenerating && pollingRef.current) {
@@ -100,7 +100,7 @@ export default function DraftsView() {
     if (rowLoading[artifactId]) return;
     setRowAction(artifactId, 'claim');
     try {
-      await articleApi.claimReview(artifactId);
+      await articleService.claimReview(artifactId);
       await fetchArticles();
     } catch (err) {
       console.error('Claim review failed:', err);
@@ -114,7 +114,7 @@ export default function DraftsView() {
     if (rowLoading[artifactId]) return;
     setRowAction(artifactId, 'geo');
     try {
-      await articleApi.geoReview(artifactId);
+      await articleService.geoReview(artifactId);
       await fetchArticles();
     } catch (err) {
       console.error('GEO review failed:', err);

@@ -29,6 +29,11 @@ import {
   QuestionRejectSchema,
   QuestionSelectSchema,
   SourceDiscoverSchema,
+  SourceAdoptSchema,
+  SourceSkipSchema,
+  SourceListDecisionsSchema,
+  SourceClearDecisionsSchema,
+  SourceRemoveDecisionSchema,
   TitleGenerateSchema,
   FactExtractSchema,
   FactListPendingSchema,
@@ -68,7 +73,13 @@ import {
   countProjectArtifacts,
 } from '../services/projectService.ts';
 import {askQuestion, buildEvidencePack} from '../services/ragService.ts';
-import {discoverSources} from '../services/article/sourceDiscoveryService.ts';
+import {
+  discoverSources,
+  upsertSourceDecision,
+  listSourceDecisions,
+  clearSourceDecisions,
+  removeSourceDecision,
+} from '../services/article/sourceDiscoveryService.ts';
 import {generateTitles} from '../../skills/title-generation/index.ts';
 import {runMinimalAgentTask} from '../services/agent/geoAgentRuntime.ts';
 import {extractFacts} from '../services/facts/factExtractionService.ts';
@@ -99,6 +110,7 @@ import type {
   AgentArtifact,
   AgentTask,
   PublishRecord,
+  SourceRecommendation,
 } from '@/types/domain';
 
 let mainWindow: BrowserWindow | null = null;
@@ -643,6 +655,7 @@ export function registerIpcHandlers() {
         | undefined,
       targetQuestion: validated.targetQuestion,
       title: validated.title,
+      adoptedSources: validated.adoptedSources as SourceRecommendation[] | undefined,
     });
   });
 
@@ -711,6 +724,31 @@ export function registerIpcHandlers() {
   createHandler('source:discover', async (projectId, targetQuestion) => {
     const validated = SourceDiscoverSchema.parse({projectId, targetQuestion});
     return discoverSources(validated.projectId, validated.targetQuestion);
+  });
+
+  createHandler('source:adopt', (projectId, targetQuestion, source) => {
+    const validated = SourceAdoptSchema.parse({projectId, targetQuestion, source});
+    upsertSourceDecision(validated.projectId, validated.targetQuestion, validated.source as SourceRecommendation, 'adopted');
+  });
+
+  createHandler('source:skip', (projectId, targetQuestion, source) => {
+    const validated = SourceSkipSchema.parse({projectId, targetQuestion, source});
+    upsertSourceDecision(validated.projectId, validated.targetQuestion, validated.source as SourceRecommendation, 'skipped');
+  });
+
+  createHandler('source:listDecisions', (projectId, targetQuestion) => {
+    const validated = SourceListDecisionsSchema.parse({projectId, targetQuestion});
+    return listSourceDecisions(validated.projectId, validated.targetQuestion);
+  });
+
+  createHandler('source:clearDecisions', (projectId, targetQuestion) => {
+    const validated = SourceClearDecisionsSchema.parse({projectId, targetQuestion});
+    clearSourceDecisions(validated.projectId, validated.targetQuestion);
+  });
+
+  createHandler('source:removeDecision', (projectId, targetQuestion, url) => {
+    const validated = SourceRemoveDecisionSchema.parse({projectId, targetQuestion, url});
+    removeSourceDecision(validated.projectId, validated.targetQuestion, validated.url);
   });
 
   createHandler('title:generate', async (projectId, targetQuestion) => {

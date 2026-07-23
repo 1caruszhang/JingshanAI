@@ -233,12 +233,20 @@ export const ReflectionListSchema = z.object({
 export const ReflectionIdSchema = z.number().int().positive();
 
 // Article
+// Phase 7：信源推荐对象（article:generate 的 adoptedSources 与 source:* 决策共用）
+const SourceRecommendationSchema = z.object({
+  url: z.string().min(1),
+  title: z.string(),
+  relevanceReason: z.string(),
+});
+
 export const ArticleGenerateSchema = z.object({
   projectId: z.number().int().positive(),
   strategy: z.literal('support_article'),
   supportArticleType: z.string().optional(),
   targetQuestion: z.string().min(1),
   title: z.string().optional(),
+  adoptedSources: z.array(SourceRecommendationSchema).optional(),
 });
 
 export const ArticleIdSchema = z.number().int().positive();
@@ -268,6 +276,24 @@ export const ProjectQuestionSchema = z.object({
 });
 
 export const SourceDiscoverSchema = ProjectQuestionSchema;
+
+// Phase 7：信源「采用 / 跳过」决策持久化（SourceRecommendationSchema 见上）
+export const SourceAdoptSchema = z.object({
+  projectId: z.number().int().positive(),
+  targetQuestion: z.string().min(1),
+  source: SourceRecommendationSchema,
+});
+
+export const SourceSkipSchema = SourceAdoptSchema;
+
+export const SourceListDecisionsSchema = ProjectQuestionSchema;
+export const SourceClearDecisionsSchema = ProjectQuestionSchema;
+
+export const SourceRemoveDecisionSchema = z.object({
+  projectId: z.number().int().positive(),
+  targetQuestion: z.string().min(1),
+  url: z.string().min(1),
+});
 export const TitleGenerateSchema = ProjectQuestionSchema;
 
 export const ArticleGenerateRankingSchema = z.object({

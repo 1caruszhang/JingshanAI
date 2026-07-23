@@ -5,7 +5,7 @@ import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {Textarea} from '@/components/ui/textarea';
 import {useTheme} from '@/hooks/use-theme';
-import {articleApi} from '@/lib/electron-api';
+import {articleService} from '@/services/articleService';
 import {cn} from '@/lib/utils';
 import type {AgentArtifact, ArticleArtifactMeta, ArticleClaim, ArticleClaimSource, ArticleReview} from '@/types/domain';
 import ClaimCard from './ClaimCard';
@@ -41,12 +41,12 @@ export default function ArticleDetailSheet({artifactId, open, onOpenChange}: Art
     setLoading(true);
     setError(null);
     try {
-      const detail = await articleApi.get(id);
+      const detail = await articleService.get(id);
       setData(detail);
       setEditContent(detail.artifact.content ?? '');
     } catch (err) {
       console.error('Failed to load article detail:', err);
-      setError(err instanceof Error ? err.message : '加载失败');
+      setError(err instanceof Error ? err.message : (t.loadFailed ?? '加载失败'));
     } finally {
       setLoading(false);
     }
@@ -94,7 +94,7 @@ export default function ArticleDetailSheet({artifactId, open, onOpenChange}: Art
     setClaimReviewLoading(true);
     setError(null);
     try {
-      await articleApi.claimReview(artifactId);
+      await articleService.claimReview(artifactId);
       await fetchDetail(artifactId);
     } catch (err) {
       console.error('Claim review failed:', err);
@@ -109,7 +109,7 @@ export default function ArticleDetailSheet({artifactId, open, onOpenChange}: Art
     setGeoReviewLoading(true);
     setError(null);
     try {
-      await articleApi.geoReview(artifactId);
+      await articleService.geoReview(artifactId);
       await fetchDetail(artifactId);
     } catch (err) {
       console.error('GEO review failed:', err);
@@ -124,7 +124,7 @@ export default function ArticleDetailSheet({artifactId, open, onOpenChange}: Art
     setStatusLoading(true);
     setError(null);
     try {
-      await articleApi.updateStatus(artifactId, status);
+      await articleService.updateStatus(artifactId, status);
       await fetchDetail(artifactId);
     } catch (err) {
       console.error('Update status failed:', err);
@@ -138,7 +138,7 @@ export default function ArticleDetailSheet({artifactId, open, onOpenChange}: Art
     if (!artifactId) return;
     setError(null);
     try {
-      await articleApi.updateContent(artifactId, editContent);
+      await articleService.updateContent(artifactId, editContent);
       setEditing(false);
       await fetchDetail(artifactId);
     } catch (err) {

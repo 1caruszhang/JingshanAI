@@ -151,6 +151,7 @@ export const i18n = {
     deleteProjectBlocked: '无法删除企业',
     deleteProjectBlockedDesc: '该企业下还有 {count} 篇稿件，请先删除稿件后再删除企业。',
     deleteProjectFailed: '删除失败',
+    loadFailed: '加载失败',
     cancel: '取消',
     delete: '删除',
     gotIt: '知道了',
@@ -216,6 +217,8 @@ export const i18n = {
     articleTargetQuestionHint: '留空将使用默认问题：介绍企业背景与核心优势。',
     articleGenerate: '生成文章',
     articleGenerating: '生成中…',
+    articleGenerateFailed: '生成失败',
+    articleAdoptedSources: '参考信源',
     articleClaims: 'Claim 列表',
     articleReviews: '审核记录',
     articleClaimReview: '运行 Claim Review',
@@ -303,6 +306,7 @@ export const i18n = {
     sourceDiscoveryAdopt: '采用',
     sourceDiscoverySkip: '跳过',
     sourceDiscoveryNextStep: '下一步：生成文章',
+    sourceDiscoveryAdoptedCount: '已采用 {n} 个信源',
 
     // Title Picker
     titlePickerGenerate: '生成标题建议',
@@ -472,6 +476,7 @@ export const i18n = {
     deleteProjectBlocked: 'Cannot Delete Enterprise',
     deleteProjectBlockedDesc: 'There are still {count} draft(s) under this enterprise. Please delete them first.',
     deleteProjectFailed: 'Failed to delete',
+    loadFailed: 'Failed to load',
     cancel: 'Cancel',
     delete: 'Delete',
     gotIt: 'Got it',
@@ -537,6 +542,8 @@ export const i18n = {
     articleTargetQuestionHint: 'Leave empty to use the default: introduce company background and core advantages.',
     articleGenerate: 'Generate Article',
     articleGenerating: 'Generating…',
+    articleGenerateFailed: 'Generation failed',
+    articleAdoptedSources: 'Reference Sources',
     articleClaims: 'Claims',
     articleReviews: 'Reviews',
     articleClaimReview: 'Run Claim Review',
@@ -624,6 +631,7 @@ export const i18n = {
     sourceDiscoveryAdopt: 'Adopt',
     sourceDiscoverySkip: 'Skip',
     sourceDiscoveryNextStep: 'Next: Generate Article',
+    sourceDiscoveryAdoptedCount: '{n} sources adopted',
 
     // Title Picker
     titlePickerGenerate: 'Generate Title Suggestions',

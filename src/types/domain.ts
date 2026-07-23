@@ -297,6 +297,21 @@ export interface SourceRecommendation {
   relevanceReason: string;
 }
 
+// Phase 7：信源「采用 / 跳过」决策（持久化于 source_decisions 表）
+export type SourceDecisionStatus = 'adopted' | 'skipped';
+
+export interface SourceDecision {
+  id: number;
+  project_id: number;
+  target_question: string;
+  url: string;
+  title: string | null;
+  relevance_reason: string | null;
+  decision: SourceDecisionStatus;
+  created_at: string;
+  updated_at: string;
+}
+
 // Phase 7：标题候选
 export interface TitleCandidate {
   titleText: string;

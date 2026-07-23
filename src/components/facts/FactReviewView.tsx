@@ -226,7 +226,3 @@ function statusLabel(t: Record<string, string>, status: FactStatus): string {
   };
   return map[status] ?? status;
 }
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}

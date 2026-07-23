@@ -170,6 +170,22 @@ export const questionApi = {
 export const sourceApi = {
   discover: (projectId: number, targetQuestion: string) =>
     api.invoke('source:discover', projectId, targetQuestion),
+  adopt: (
+    projectId: number,
+    targetQuestion: string,
+    source: Parameters<IpcChannels['source:adopt']>[2],
+  ) => api.invoke('source:adopt', projectId, targetQuestion, source),
+  skip: (
+    projectId: number,
+    targetQuestion: string,
+    source: Parameters<IpcChannels['source:skip']>[2],
+  ) => api.invoke('source:skip', projectId, targetQuestion, source),
+  listDecisions: (projectId: number, targetQuestion: string) =>
+    api.invoke('source:listDecisions', projectId, targetQuestion),
+  clearDecisions: (projectId: number, targetQuestion: string) =>
+    api.invoke('source:clearDecisions', projectId, targetQuestion),
+  removeDecision: (projectId: number, targetQuestion: string, url: string) =>
+    api.invoke('source:removeDecision', projectId, targetQuestion, url),
 };
 
 export const titleApi = {

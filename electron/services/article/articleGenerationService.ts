@@ -12,10 +12,11 @@ import {
   createRankingArticleItems,
   updateArticleStatus,
   finalizeArticleAfterGeneration,
+  saveSourceRecommendation,
 } from './articleRepository.ts';
 import {parseClaims} from './claimParsingService.ts';
 import type {ArticleStrategy, SupportArticleType} from './articleTypes.ts';
-import type {AgentArtifact, ArticleArtifactMeta, ArticleClaim, RankingArticleParams} from '@/types/domain';
+import type {AgentArtifact, ArticleArtifactMeta, ArticleClaim, RankingArticleParams, SourceRecommendation} from '@/types/domain';
 
 export interface GenerateArticleInput {
   projectId: number;
@@ -23,6 +24,12 @@ export interface GenerateArticleInput {
   supportArticleType?: SupportArticleType;
   targetQuestion: string;
   title?: string;
+  /**
+   * Sources the user adopted in SourceDiscoveryView. Persisted to
+   * article_artifacts_meta.source_recommendation so the draft detail view can
+   * surface the reference sources the article was built against.
+   */
+  adoptedSources?: SourceRecommendation[];
 }
 
 export interface GenerateArticleResult {
@@ -87,6 +94,11 @@ export async function generateArticle(
 
     // 更新内容和标题，status = 'draft'
     finalizeArticleAfterGeneration(artifactId, title, skillOutput.content);
+
+    // 持久化采用的信源到 article_artifacts_meta.source_recommendation
+    if (input.adoptedSources && input.adoptedSources.length > 0) {
+      saveSourceRecommendation(artifactId, JSON.stringify(input.adoptedSources));
+    }
 
     // 自动生成 Claim 抽取
     await parseClaims(artifactId);

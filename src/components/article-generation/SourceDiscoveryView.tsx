@@ -1,13 +1,13 @@
-import {useState} from 'react';
+import {useState, useEffect, useCallback} from 'react';
 import {Card} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {useTheme} from '@/hooks/use-theme';
 import {useView} from '@/context/ViewContext';
-import {sourceApi} from '@/lib/electron-api';
+import {sourceService} from '@/services/sourceService';
 import {cn} from '@/lib/utils';
 import {Globe, Loader2, ExternalLink} from 'lucide-react';
-import type {SourceRecommendation} from '@/types/domain';
+import type {SourceDecision, SourceRecommendation} from '@/types/domain';
 
 export default function SourceDiscoveryView() {
   const {cls, t} = useTheme();
@@ -19,18 +19,34 @@ export default function SourceDiscoveryView() {
   const [sources, setSources] = useState<SourceRecommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [adopted, setAdopted] = useState<Set<string>>(new Set());
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  // Persisted decisions keyed by url, mirrored from source_decisions.
+  const [decisions, setDecisions] = useState<Map<string, 'adopted' | 'skipped'>>(new Map());
+
+  // Restore previously persisted decisions when the view mounts with a project
+  // + question so adopt/skip state survives navigation away and back.
+  const refreshDecisions = useCallback(async () => {
+    if (!projectId || !selectedQuestion) return;
+    try {
+      const rows = await sourceService.listDecisions(projectId, selectedQuestion);
+      setDecisions(new Map(rows.map((d) => [d.url, d.decision])));
+    } catch (err) {
+      console.warn('[SourceDiscoveryView] failed to load decisions:', err);
+    }
+  }, [projectId, selectedQuestion]);
+
+  useEffect(() => {
+    void refreshDecisions();
+  }, [refreshDecisions]);
 
   const handleDiscover = async () => {
     if (!projectId || !selectedQuestion) return;
     setLoading(true);
     setError(null);
     try {
-      const items = await sourceApi.discover(projectId, selectedQuestion);
-      setSources((items as SourceRecommendation[]) ?? []);
-      setAdopted(new Set());
-      setSkipped(new Set());
+      const items = await sourceService.discover(projectId, selectedQuestion);
+      setSources(items ?? []);
+      // Decisions are keyed by url; keep any that still apply to the new list.
+      await refreshDecisions();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -38,39 +54,41 @@ export default function SourceDiscoveryView() {
     }
   };
 
-  const toggleAdopt = (url: string) => {
-    setAdopted((prev) => {
-      const next = new Set(prev);
-      if (next.has(url)) {
-        next.delete(url);
+  /**
+   * Toggles a source's decision between adopted/skipped/undecided. Optimistic
+   * update with rollback on persistence failure so the UI never shows a state
+   * the DB doesn't reflect.
+   */
+  const toggleDecision = async (source: SourceRecommendation, status: 'adopted' | 'skipped') => {
+    if (!projectId || !selectedQuestion) return;
+    const prevDecision = decisions.get(source.url);
+    const turningOff = prevDecision === status;
+
+    const next = new Map(decisions);
+    if (turningOff) next.delete(source.url);
+    else next.set(source.url, status);
+    setDecisions(next);
+
+    try {
+      if (turningOff) {
+        await sourceService.removeDecision(projectId, selectedQuestion, source.url);
+      } else if (status === 'adopted') {
+        await sourceService.adopt(projectId, selectedQuestion, source);
       } else {
-        next.add(url);
-        setSkipped((s) => {
-          const ns = new Set(s);
-          ns.delete(url);
-          return ns;
-        });
+        await sourceService.skip(projectId, selectedQuestion, source);
       }
-      return next;
-    });
+    } catch (err) {
+      // Rollback to the pre-toggle state.
+      setDecisions(decisions);
+      console.warn('[SourceDiscoveryView] failed to persist decision:', err);
+    }
   };
 
-  const toggleSkip = (url: string) => {
-    setSkipped((prev) => {
-      const next = new Set(prev);
-      if (next.has(url)) {
-        next.delete(url);
-      } else {
-        next.add(url);
-        setAdopted((a) => {
-          const na = new Set(a);
-          na.delete(url);
-          return na;
-        });
-      }
-      return next;
-    });
-  };
+  const toggleAdopt = (source: SourceRecommendation) => toggleDecision(source, 'adopted');
+  const toggleSkip = (source: SourceRecommendation) => toggleDecision(source, 'skipped');
+
+  // Adopted sources flow into article generation as reference material.
+  const adoptedSources = sources.filter((s) => decisions.get(s.url) === 'adopted');
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -99,7 +117,7 @@ export default function SourceDiscoveryView() {
         </div>
       )}
 
-      <div className="mb-6">
+      <div className="mb-6 flex items-center gap-4">
         <Button onClick={handleDiscover} disabled={loading || !projectId || !selectedQuestion} className="gap-2">
           {loading ? (
             <>
@@ -113,6 +131,13 @@ export default function SourceDiscoveryView() {
             </>
           )}
         </Button>
+        {adoptedSources.length > 0 && (
+          <Badge variant="secondary" className={cn('text-xs', cls('bg-green-50 text-green-700 border-green-200', 'bg-green-500/10 text-green-400 border-green-500/20'))}>
+            {t.sourceDiscoveryAdoptedCount
+              ? t.sourceDiscoveryAdoptedCount.replace('{n}', String(adoptedSources.length))
+              : `已采用 ${adoptedSources.length} 个信源`}
+          </Badge>
+        )}
       </div>
 
       {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
@@ -125,8 +150,9 @@ export default function SourceDiscoveryView() {
       ) : (
         <div className="space-y-3">
           {sources.map((source) => {
-            const isAdopted = adopted.has(source.url);
-            const isSkipped = skipped.has(source.url);
+            const decision = decisions.get(source.url);
+            const isAdopted = decision === 'adopted';
+            const isSkipped = decision === 'skipped';
             return (
               <Card
                 key={source.url}
@@ -161,7 +187,7 @@ export default function SourceDiscoveryView() {
 
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => toggleAdopt(source.url)}
+                      onClick={() => toggleAdopt(source)}
                       className={cn(
                         'text-xs px-2.5 py-1 rounded-full font-medium border transition-colors',
                         isAdopted
@@ -175,7 +201,7 @@ export default function SourceDiscoveryView() {
                       {t.sourceDiscoveryAdopt ?? '采用'}
                     </button>
                     <button
-                      onClick={() => toggleSkip(source.url)}
+                      onClick={() => toggleSkip(source)}
                       className={cn(
                         'text-xs px-2.5 py-1 rounded-full font-medium border transition-colors',
                         isSkipped
@@ -202,6 +228,7 @@ export default function SourceDiscoveryView() {
             navigateTo('articleGeneration', {
               selectedQuestion,
               projectId,
+              adoptedSources,
             })
           }
           disabled={!selectedQuestion || !projectId}

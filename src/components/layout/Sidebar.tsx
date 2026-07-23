@@ -34,8 +34,9 @@ const factsMenu: { id: View; icon: React.ComponentType<{ className?: string }>; 
   { id: 'factReview', icon: ClipboardCheck, labelKey: 'factReview' },
 ];
 
-const contentMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'questionPool' | 'articleGeneration' | 'drafts' }[] = [
+const contentMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'questionPool' | 'sourceDiscovery' | 'articleGeneration' | 'drafts' }[] = [
   { id: 'questionPool', icon: HelpCircle, labelKey: 'questionPool' },
+  { id: 'sourceDiscovery', icon: Globe, labelKey: 'sourceDiscovery' },
   { id: 'articleGeneration', icon: Sparkles, labelKey: 'articleGeneration' },
   { id: 'drafts', icon: FileText, labelKey: 'drafts' },
 ];

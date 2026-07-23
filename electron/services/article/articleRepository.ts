@@ -273,6 +273,18 @@ export function finalizeArticleAfterGeneration(
   ).run(title, now, artifactId);
 }
 
+/**
+ * Persists the adopted source recommendations (JSON) against an article's
+ * meta row. Called after generation finalizes so the draft detail view can
+ * surface the reference sources the article was built against.
+ */
+export function saveSourceRecommendation(artifactId: number, sourcesJson: string): void {
+  const db = getDb();
+  db.prepare(
+    `UPDATE article_artifacts_meta SET source_recommendation = ?, updated_at = ? WHERE artifact_id = ?`,
+  ).run(sourcesJson, new Date().toISOString(), artifactId);
+}
+
 export function countConfirmedFacts(projectId: number): number {
   const db = getDb();
   const row = db
