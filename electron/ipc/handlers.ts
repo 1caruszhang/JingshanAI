@@ -93,6 +93,7 @@ import {
   updateArticleStatus,
   updateArticleContent,
 } from '../services/article/articleRepository.ts';
+import {startRun, cancelRun, resolveToolApproval} from '../services/assistant/assistantRuntime.ts';
 import type {IpcChannels} from './channels.ts';
 import type {
   AgentArtifact,
@@ -331,30 +332,23 @@ export function registerIpcHandlers() {
     return askQuestion(validated.projectId, validated.query, validated.limit ?? 5);
   });
 
-  // Assistant Runtime（骨架：只写入运行记录，不实现真实流式）
-  createHandler('assistant:streamStart', (params) => {
+  // Assistant Runtime — true streaming via AssistantRuntime
+  createHandler('assistant:streamStart', async (params) => {
     const validated = AssistantStreamStartSchema.parse(params);
-    const result = db
-      .prepare(
-        `INSERT INTO assistant_runs (
-           session_id, project_id, request_id, run_type, status,
-           started_at, updated_at
-         ) VALUES (?, ?, ?, ?, 'running', datetime('now'), datetime('now'))`,
-      )
-      .run(
-        validated.sessionId ?? null,
-        validated.projectId ?? null,
-        validated.requestId,
-        validated.runType ?? 'chat',
-      );
-    return {runId: Number(result.lastInsertRowid)};
+    return startRun(
+      {
+        sessionId: validated.sessionId,
+        projectId: validated.projectId,
+        requestId: validated.requestId,
+        runType: validated.runType,
+      },
+      mainWindow,
+    );
   });
 
   createHandler('assistant:streamCancel', (requestId) => {
     const validated = AssistantStreamCancelSchema.parse(requestId);
-    db.prepare("UPDATE assistant_runs SET status = 'cancelled', updated_at = datetime('now') WHERE request_id = ?").run(
-      validated,
-    );
+    cancelRun(validated);
   });
 
   createHandler('assistant:history', (sessionId, limit) => {
@@ -394,6 +388,8 @@ export function registerIpcHandlers() {
       validated.note ?? null,
       validated.approvalId,
     );
+    // Resume the suspended generator in AssistantRuntime (Ticket 3)
+    resolveToolApproval(validated.approvalId, validated.approved);
   });
 
   createHandler('toolApproval:listPending', () => {

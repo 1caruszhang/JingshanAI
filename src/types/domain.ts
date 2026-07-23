@@ -868,3 +868,7 @@ export {
   isFactType,
 } from '../../electron/services/facts/factTypes';
 export type { FactType, FactExtractionResult } from '../../electron/services/facts/factTypes';
+
+// Re-export AssistantStreamEvent for use in Renderer
+// Renderer code must never import directly from electron/services/* — use this re-export.
+export type { AssistantStreamEvent } from '../../electron/services/assistant/types';

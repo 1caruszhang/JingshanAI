@@ -243,6 +243,8 @@ export const i18n = {
     articleStatusGeoReviewed: 'GEO 已审核',
     articleStatusApproved: '已通过',
     articleStatusRejected: '已拒绝',
+    articleStatusGenerating: '生成中',
+    articleStatusFailed: '失败',
 
     // Human Review
     humanReview: '人工审核',
@@ -562,6 +564,8 @@ export const i18n = {
     articleStatusGeoReviewed: 'GEO Reviewed',
     articleStatusApproved: 'Approved',
     articleStatusRejected: 'Rejected',
+    articleStatusGenerating: 'Generating',
+    articleStatusFailed: 'Failed',
 
     // Human Review
     humanReview: 'Human Review',

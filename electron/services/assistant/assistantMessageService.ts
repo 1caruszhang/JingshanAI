@@ -1,13 +1,29 @@
+import {getDb} from '../../db/connection.ts';
 import type {ChatMessage} from '@/types/domain';
 
-export async function getMessages(_sessionId: number, _limit?: number): Promise<ChatMessage[]> {
-  throw new Error('AssistantMessageService.getMessages not implemented');
+export function getMessages(sessionId: number, limit = 50): ChatMessage[] {
+  const db = getDb();
+  return db
+    .prepare(
+      'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ?',
+    )
+    .all(sessionId, limit) as ChatMessage[];
 }
 
-export async function addMessage(
-  _sessionId: number,
-  _role: ChatMessage['role'],
-  _content: string,
-): Promise<ChatMessage> {
-  throw new Error('AssistantMessageService.addMessage not implemented');
+export function addMessage(
+  sessionId: number,
+  role: ChatMessage['role'],
+  content: string,
+  options?: {projectId?: number | null; model?: string | null},
+): ChatMessage {
+  const db = getDb();
+  const result = db
+    .prepare(
+      `INSERT INTO chat_messages (session_id, project_id, role, content, model, created_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+    )
+    .run(sessionId, options?.projectId ?? null, role, content, options?.model ?? null);
+  return db
+    .prepare('SELECT * FROM chat_messages WHERE id = ?')
+    .get(Number(result.lastInsertRowid)) as ChatMessage;
 }

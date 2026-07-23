@@ -8,13 +8,13 @@ import {
 } from '@/components/ai-elements/conversation';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppState } from '@/context/AppStateContext';
-import { useStreamingText } from '@/hooks/use-streaming-text';
 import { chatService } from '@/services/chatService';
 import { projectService } from '@/services/projectService';
-import { agentTaskApi } from '@/lib/electron-api';
+import { assistantApi, api } from '@/lib/electron-api';
 import { handleIngestIntent } from '@/services/agentKnowledgeIngestService';
 import type { UploadedFile, ChatMessage as UiChatMessage } from '@/lib/file-upload';
 import type { ChatSession } from '@/types/domain';
+import type { AssistantStreamEvent } from '@/types/domain';
 import WelcomeScreen from './WelcomeScreen';
 import EmptyChatState from './EmptyChatState';
 import ChatMessages from './ChatMessages';
@@ -74,16 +74,14 @@ export default function ChatInterface({
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const { displayText, isStreaming: isRevealing, start, stop: stopReveal, reset } = useStreamingText();
+  // True streaming refs
+  const currentRunRequestIdRef = useRef<string | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!streamingMessageId) return;
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === streamingMessageId ? { ...m, content: displayText } : m,
-      ),
-    );
-  }, [displayText, streamingMessageId]);
+    // No fake streaming anymore — content is updated directly in generateResponse
+  }, [streamingMessageId]);
 
   const [internalFiles, setInternalFiles] = useState<UploadedFile[]>([]);
   const [internalProject, setInternalProject] = useState('');
@@ -217,8 +215,8 @@ export default function ChatInterface({
     async (sessionId: number, userContent: string) => {
       setIsLoading(true);
       setActiveTaskId(null);
-      reset();
 
+      const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const assistantId = `assistant_${Date.now()}`;
       const assistantMessage: UiChatMessage = {
         id: assistantId,
@@ -226,68 +224,137 @@ export default function ChatInterface({
         content: '',
       };
       setMessages((prev) => [...prev, assistantMessage]);
-      setStreamingMessageId(assistantId);
+      // Note: do NOT set streamingMessageId yet — ThinkingIndicator should show
+      // until the first text_delta arrives (set then).
 
-      let answer = 'Agent 未返回有效回答';
-      let taskId: number | null = null;
+      // Unsubscribe from any previous event listener
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
 
-      try {
-        const task = await agentTaskApi.run({
-          sessionId: sessionId,
-          projectId: currentProject?.id,
-          title: userContent.slice(0, 80),
-          userGoal: userContent,
-        });
+      currentRunRequestIdRef.current = requestId;
 
-        taskId = task.id;
-        setActiveTaskId(taskId);
+      // Subscribe to assistant:event stream
+      const unsub = api.on('assistant:event', (...args: unknown[]) => {
+        const event = args[0] as AssistantStreamEvent;
 
-        if (task.status === 'completed') {
-          const artifacts = await agentTaskApi.artifacts(task.id);
-          const responseArtifact = (artifacts as Array<{ artifact_type: string; content: string }>).find(
-            (a) => a.artifact_type === 'agent_response',
+        if (event.type === 'text_delta') {
+          // First delta: transition from ThinkingIndicator to streaming message
+          setStreamingMessageId(assistantId);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, content: m.content + event.delta }
+                : m,
+            ),
           );
-          answer = responseArtifact?.content ?? answer;
-        } else if (task.status === 'failed') {
-          answer = task.current_objective ?? '任务执行失败';
-        }
-
-        start(answer, async () => {
-          await saveMessage(sessionId, 'assistant', answer);
+        } else if (event.type === 'approval_requested') {
+          // Inject approval card as a message
+          const approvalMsgId = `approval_${event.approvalId}_${Date.now()}`;
+          const approvalMsg: UiChatMessage = {
+            id: approvalMsgId,
+            role: 'assistant',
+            content: '',
+            approvalRequest: {
+              approvalId: event.approvalId ?? 0,
+              toolCallId: event.toolCallId,
+              title: event.title,
+              description: event.description,
+              status: 'pending',
+            },
+          };
+          setMessages((prev) => [...prev, approvalMsg]);
+        } else if (event.type === 'message_completed') {
           setIsLoading(false);
           setStreamingMessageId(null);
           setActiveTaskId(null);
+          currentRunRequestIdRef.current = null;
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+            unsubscribeRef.current = null;
+          }
+        } else if (event.type === 'message_interrupted') {
+          // Reset any still-pending approval cards to rejected
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.approvalRequest?.status === 'pending'
+                ? { ...m, approvalRequest: { ...m.approvalRequest!, status: 'rejected' } }
+                : m,
+            ),
+          );
+          setIsLoading(false);
+          setStreamingMessageId(null);
+          setActiveTaskId(null);
+          currentRunRequestIdRef.current = null;
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+            unsubscribeRef.current = null;
+          }
+        } else if (event.type === 'error') {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, content: m.content || `错误：${event.message}` }
+                : m,
+            ),
+          );
+          setIsLoading(false);
+          setStreamingMessageId(null);
+          setActiveTaskId(null);
+          currentRunRequestIdRef.current = null;
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+            unsubscribeRef.current = null;
+          }
+        }
+      });
+      unsubscribeRef.current = unsub;
+
+      try {
+        await assistantApi.streamStart({
+          sessionId,
+          projectId: currentProject?.id,
+          requestId,
+          runType: 'chat',
         });
       } catch {
-        answer = '请求失败，请稍后重试';
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, content: answer } : m,
+            m.id === assistantId ? { ...m, content: '请求失败，请稍后重试' } : m,
           ),
         );
-        await saveMessage(sessionId, 'assistant', answer);
         setIsLoading(false);
         setStreamingMessageId(null);
         setActiveTaskId(null);
+        currentRunRequestIdRef.current = null;
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current();
+          unsubscribeRef.current = null;
+        }
       }
     },
-    [currentProject, saveMessage, start, reset],
+    [currentProject],
   );
 
   const finalizeStreaming = useCallback(async () => {
-    stopReveal();
+    // Cancel in-flight stream if any
+    if (currentRunRequestIdRef.current) {
+      try {
+        await assistantApi.streamCancel(currentRunRequestIdRef.current);
+      } catch {
+        // ignore
+      }
+      currentRunRequestIdRef.current = null;
+    }
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
     setIsLoading(false);
     setStreamingMessageId(null);
     setActiveTaskId(null);
-
-    if (!currentChatSession) return;
-    const assistantMessage = messages.find(
-      (m) => m.id === streamingMessageId,
-    );
-    if (assistantMessage?.content) {
-      await saveMessage(currentChatSession.id, 'assistant', assistantMessage.content);
-    }
-  }, [currentChatSession, messages, saveMessage, stopReveal, streamingMessageId]);
+  }, []);
 
   const handleSubmit = useCallback(
     async (message: { text: string; files: unknown[] }) => {
@@ -423,6 +490,10 @@ export default function ChatInterface({
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       objectUrlsRef.current.clear();
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
     };
   }, []);
 
@@ -474,9 +545,27 @@ export default function ChatInterface({
             ) : messages.length === 0 ? (
               <EmptyChatState />
             ) : (
-              <ChatMessages messages={messages} />
+              <ChatMessages
+                messages={messages}
+                onApprovalRespond={(approvalId, approved) => {
+                  // Update the approval card status in-place
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.approvalRequest?.approvalId === approvalId
+                        ? {
+                            ...m,
+                            approvalRequest: {
+                              ...m.approvalRequest!,
+                              status: approved ? 'approved' : 'rejected',
+                            },
+                          }
+                        : m,
+                    ),
+                  );
+                }}
+              />
             )}
-            {isLoading && !isRevealing && <ThinkingIndicator />}
+            {isLoading && !streamingMessageId && <ThinkingIndicator />}
             {activeTaskId && (
               <AgentTaskProgress
                 taskId={activeTaskId}
@@ -496,7 +585,7 @@ export default function ChatInterface({
             onFileUpload={handleFileUpload}
             onRemoveFile={handleRemoveFile}
             isLoading={isLoading}
-            isStreaming={isRevealing}
+            isStreaming={isLoading}
             onStop={finalizeStreaming}
             selectedProject={selectedProject}
             onProjectChange={handleProjectChange}

@@ -20,6 +20,17 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   type?: 'fact_review' | 'text';
+  /**
+   * When set, the message is an approval request card that should be rendered
+   * with Approve/Reject controls instead of message text.
+   */
+  approvalRequest?: {
+    approvalId: number;
+    toolCallId?: number;
+    title: string;
+    description?: string;
+    status?: 'pending' | 'approved' | 'rejected';
+  };
   facts?: Array<{
     id: number;
     fact_type: string;

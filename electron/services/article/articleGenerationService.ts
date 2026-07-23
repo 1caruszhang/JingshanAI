@@ -10,6 +10,8 @@ import {
   getArticleMetaByArtifactId,
   getArtifactById,
   createRankingArticleItems,
+  updateArticleStatus,
+  finalizeArticleAfterGeneration,
 } from './articleRepository.ts';
 import {parseClaims} from './claimParsingService.ts';
 import type {ArticleStrategy, SupportArticleType} from './articleTypes.ts';
@@ -49,46 +51,60 @@ export async function generateArticle(
   const evidence = await buildEvidencePack(input.projectId, input.targetQuestion);
   const supportArticleType = input.supportArticleType ?? 'enterprise_profile';
 
-  // Step 1: 文章规划
-  const planOutput = await planSupportArticle({
-    projectName: project.name,
-    supportArticleType,
-    targetQuestion: input.targetQuestion,
-    evidencePack: evidence,
-  });
-
-  // Step 2: 文章生成（将规划结果注入）
-  const skillOutput = await generateSupportArticle({
-    projectName: project.name,
-    supportArticleType,
-    targetQuestion: input.targetQuestion,
-    evidencePack: evidence,
-    outline: planOutput.outline,
-    keyPoints: planOutput.keyPoints,
-    suggestedLength: planOutput.suggestedLength,
-  });
-
-  const title = input.title?.trim() || skillOutput.title;
-
-  const {artifact, meta} = createArticle({
+  // 先创建占位记录，status = 'generating'
+  const placeholder = createArticle({
     projectId: input.projectId,
     strategy: input.strategy,
     supportArticleType,
     targetQuestion: input.targetQuestion,
-    title,
-    content: skillOutput.content,
+    title: input.title?.trim() || '生成中...',
+    content: '',
+    status: 'generating',
   });
+  const artifactId = placeholder.artifact.id;
 
-  // 自动生成 Claim 抽取
-  await parseClaims(artifact.id);
+  try {
+    // Step 1: 文章规划
+    const planOutput = await planSupportArticle({
+      projectName: project.name,
+      supportArticleType,
+      targetQuestion: input.targetQuestion,
+      evidencePack: evidence,
+    });
 
-  const claims = getClaimsByArtifactId(artifact.id);
+    // Step 2: 文章生成（将规划结果注入）
+    const skillOutput = await generateSupportArticle({
+      projectName: project.name,
+      supportArticleType,
+      targetQuestion: input.targetQuestion,
+      evidencePack: evidence,
+      outline: planOutput.outline,
+      keyPoints: planOutput.keyPoints,
+      suggestedLength: planOutput.suggestedLength,
+    });
 
-  return {
-    artifact,
-    meta: meta ?? getArticleMetaByArtifactId(artifact.id)!,
-    claims,
-  };
+    const title = input.title?.trim() || skillOutput.title;
+
+    // 更新内容和标题，status = 'draft'
+    finalizeArticleAfterGeneration(artifactId, title, skillOutput.content);
+
+    // 自动生成 Claim 抽取
+    await parseClaims(artifactId);
+
+    const claims = getClaimsByArtifactId(artifactId);
+    const finalArtifact = getArtifactById(artifactId)!;
+    const finalMeta = getArticleMetaByArtifactId(artifactId)!;
+
+    return {artifact: finalArtifact, meta: finalMeta, claims};
+  } catch (err) {
+    // 生成失败：更新 status = 'failed'
+    try {
+      updateArticleStatus(artifactId, 'failed');
+    } catch {
+      // ignore secondary failure
+    }
+    throw err;
+  }
 }
 
 export async function regenerateClaims(artifactId: number): Promise<ArticleClaim[]> {
@@ -113,38 +129,52 @@ export async function generateRankingArticleEntry(
 
   const evidence = await buildEvidencePack(input.projectId, input.targetQuestion);
 
-  const rankingOutput = await generateRankingArticle({
-    projectName: project.name,
-    targetQuestion: input.targetQuestion,
-    competitors: input.competitors,
-    evidencePack: evidence,
-  });
-
-  const title = rankingOutput.title;
-
-  const {artifact, meta} = createArticle({
+  // 先创建占位记录，status = 'generating'
+  const placeholder = createArticle({
     projectId: input.projectId,
     strategy: 'ranking_article',
     targetQuestion: input.targetQuestion,
-    title,
-    content: rankingOutput.content,
+    title: '生成中...',
+    content: '',
+    status: 'generating',
   });
+  const artifactId = placeholder.artifact.id;
 
-  // 保存排行榜条目
-  if (rankingOutput.entries && rankingOutput.entries.length > 0) {
-    createRankingArticleItems(artifact.id, input.projectId, rankingOutput.entries);
+  try {
+    const rankingOutput = await generateRankingArticle({
+      projectName: project.name,
+      targetQuestion: input.targetQuestion,
+      competitors: input.competitors,
+      evidencePack: evidence,
+    });
+
+    const title = rankingOutput.title;
+
+    // 更新内容和标题，status = 'draft'
+    finalizeArticleAfterGeneration(artifactId, title, rankingOutput.content);
+
+    // 保存排行榜条目
+    if (rankingOutput.entries && rankingOutput.entries.length > 0) {
+      createRankingArticleItems(artifactId, input.projectId, rankingOutput.entries);
+    }
+
+    // 自动生成 Claim 抽取
+    await parseClaims(artifactId);
+
+    const claims = getClaimsByArtifactId(artifactId);
+    const finalArtifact = getArtifactById(artifactId)!;
+    const finalMeta = getArticleMetaByArtifactId(artifactId)!;
+
+    return {artifact: finalArtifact, meta: finalMeta, claims};
+  } catch (err) {
+    // 生成失败：更新 status = 'failed'
+    try {
+      updateArticleStatus(artifactId, 'failed');
+    } catch {
+      // ignore secondary failure
+    }
+    throw err;
   }
-
-  // 自动生成 Claim 抽取
-  await parseClaims(artifact.id);
-
-  const claims = getClaimsByArtifactId(artifact.id);
-
-  return {
-    artifact,
-    meta: meta ?? getArticleMetaByArtifactId(artifact.id)!,
-    claims,
-  };
 }
 
 export function getArticleDetail(artifactId: number): {

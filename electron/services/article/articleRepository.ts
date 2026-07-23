@@ -15,6 +15,8 @@ export interface CreateArticleInput {
   targetQuestion: string;
   title: string;
   content: string;
+  /** Initial status, defaults to 'draft' */
+  status?: string;
 }
 
 export interface CreateReviewInput {
@@ -35,13 +37,14 @@ export function createArticle(input: CreateArticleInput): {
   const db = getDb();
 
   const now = new Date().toISOString();
+  const initialStatus = input.status ?? 'draft';
   const artifactResult = db
     .prepare(
       `INSERT INTO agent_artifacts
        (project_id, artifact_type, title, content, status, created_at, updated_at)
-       VALUES (?, 'article', ?, ?, 'draft', ?, ?)`,
+       VALUES (?, 'article', ?, ?, ?, ?, ?)`,
     )
-    .run(input.projectId, input.title, input.content, now, now);
+    .run(input.projectId, input.title, input.content, initialStatus, now, now);
 
   const artifactId = Number(artifactResult.lastInsertRowid);
 
@@ -50,7 +53,7 @@ export function createArticle(input: CreateArticleInput): {
       `INSERT INTO article_artifacts_meta
        (artifact_id, project_id, article_strategy_type, support_article_type,
         target_question, title, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       artifactId,
@@ -59,6 +62,7 @@ export function createArticle(input: CreateArticleInput): {
       input.supportArticleType ?? null,
       input.targetQuestion,
       input.title,
+      initialStatus,
       now,
       now,
     );
@@ -251,6 +255,22 @@ export function updateArticleContent(
   db.prepare(
     "UPDATE agent_artifacts SET content = ?, updated_at = ? WHERE id = ?",
   ).run(content, now, artifactId);
+}
+
+/** 生成完成后将占位记录更新为最终内容，status 改为 'draft' */
+export function finalizeArticleAfterGeneration(
+  artifactId: number,
+  title: string,
+  content: string,
+): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    "UPDATE agent_artifacts SET title = ?, content = ?, status = 'draft', updated_at = ? WHERE id = ?",
+  ).run(title, content, now, artifactId);
+  db.prepare(
+    "UPDATE article_artifacts_meta SET title = ?, status = 'draft', updated_at = ? WHERE artifact_id = ?",
+  ).run(title, now, artifactId);
 }
 
 export function countConfirmedFacts(projectId: number): number {

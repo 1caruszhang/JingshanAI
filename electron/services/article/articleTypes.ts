@@ -8,6 +8,8 @@ export type SupportArticleType =
   | 'solution_guide';
 
 export type ArticleStatus =
+  | 'generating'
+  | 'failed'
   | 'draft'
   | 'claim_reviewed'
   | 'geo_reviewed'
@@ -33,6 +35,8 @@ export interface ParsedClaim {
 }
 
 export const ARTICLE_STATUS_LABEL: Record<ArticleStatus, string> = {
+  generating: '生成中',
+  failed: '失败',
   draft: '草稿',
   claim_reviewed: 'Claim 已审核',
   geo_reviewed: 'GEO 已审核',
