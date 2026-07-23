@@ -3,6 +3,7 @@ import {app, BrowserWindow, Menu} from 'electron';
 import {join} from 'node:path';
 import {setApp} from './utils/paths.ts';
 import {registerIpcHandlers, setMainWindow} from './ipc/handlers.ts';
+import {loadAllSkills} from './services/agent/skillRegistry.ts';
 
 declare const __dirname: string;
 
@@ -57,6 +58,13 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Validate all Skill definitions at startup — throws if any SKILL.md is malformed
+  try {
+    const skills = loadAllSkills();
+    console.log(`[skillRegistry] ✓ ${skills.length} skills loaded`);
+  } catch (err) {
+    console.error('[skillRegistry] Startup validation failed:', (err as Error).message);
+  }
   registerIpcHandlers();
   createWindow();
 });
