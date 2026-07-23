@@ -1,0 +1,271 @@
+{
+  "generatedAt": "2026-07-23T15:37:34.471Z",
+  "note": "structure contract (field presence + types + hard-constraint assertions), NOT text equality",
+  "newPath": [
+    {
+      "skill": "title-generation",
+      "label": "valid",
+      "expectOk": true,
+      "newPath": {
+        "skill": "title-generation",
+        "path": "new",
+        "ok": true,
+        "contract": {
+          "path": "",
+          "type": "object",
+          "fields": {
+            "titles": {
+              "path": "titles",
+              "type": "array",
+              "length": 3,
+              "items": {
+                "path": "titles[]",
+                "type": "object",
+                "fields": {
+                  "titleText": {
+                    "path": "titles[].titleText",
+                    "type": "string"
+                  },
+                  "score": {
+                    "path": "titles[].score",
+                    "type": "number"
+                  },
+                  "intent": {
+                    "path": "titles[].intent",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "path": "titles[].notes",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "assertions": [
+          {
+            "name": "titles.length in [3,5]",
+            "pass": true,
+            "value": 3
+          },
+          {
+            "name": "every score in [0,1]",
+            "pass": true
+          }
+        ]
+      },
+      "casePass": true
+    },
+    {
+      "skill": "ranking-article-generation",
+      "label": "valid",
+      "expectOk": true,
+      "newPath": {
+        "skill": "ranking-article-generation",
+        "path": "new",
+        "ok": true,
+        "contract": {
+          "path": "",
+          "type": "object",
+          "fields": {
+            "title": {
+              "path": "title",
+              "type": "string"
+            },
+            "content": {
+              "path": "content",
+              "type": "string"
+            },
+            "confidence": {
+              "path": "confidence",
+              "type": "number"
+            },
+            "entries": {
+              "path": "entries",
+              "type": "array",
+              "length": 2,
+              "items": {
+                "path": "entries[]",
+                "type": "object",
+                "fields": {
+                  "company": {
+                    "path": "entries[].company",
+                    "type": "string"
+                  },
+                  "position": {
+                    "path": "entries[].position",
+                    "type": "number"
+                  },
+                  "reasons": {
+                    "path": "entries[].reasons",
+                    "type": "array",
+                    "length": 1,
+                    "items": {
+                      "path": "entries[].reasons[]",
+                      "type": "string"
+                    }
+                  },
+                  "sourceFactIds": {
+                    "path": "entries[].sourceFactIds",
+                    "type": "array",
+                    "length": 1,
+                    "items": {
+                      "path": "entries[].sourceFactIds[]",
+                      "type": "number"
+                    }
+                  },
+                  "reasoning_text": {
+                    "path": "entries[].reasoning_text",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "assertions": [
+          {
+            "name": "entries.length >= 2",
+            "pass": true,
+            "value": 2
+          },
+          {
+            "name": "every position in [2,5] (after clamp)",
+            "pass": true,
+            "value": [
+              2,
+              3
+            ]
+          },
+          {
+            "name": "entries sorted by position asc",
+            "pass": true
+          },
+          {
+            "name": "confidence in [0,1]",
+            "pass": true
+          }
+        ]
+      },
+      "casePass": true
+    },
+    {
+      "skill": "ranking-article-generation",
+      "label": "position-out-of-range (修正型)",
+      "expectOk": true,
+      "newPath": {
+        "skill": "ranking-article-generation",
+        "path": "new",
+        "ok": true,
+        "contract": {
+          "path": "",
+          "type": "object",
+          "fields": {
+            "title": {
+              "path": "title",
+              "type": "string"
+            },
+            "content": {
+              "path": "content",
+              "type": "string"
+            },
+            "confidence": {
+              "path": "confidence",
+              "type": "number"
+            },
+            "entries": {
+              "path": "entries",
+              "type": "array",
+              "length": 2,
+              "items": {
+                "path": "entries[]",
+                "type": "object",
+                "fields": {
+                  "company": {
+                    "path": "entries[].company",
+                    "type": "string"
+                  },
+                  "position": {
+                    "path": "entries[].position",
+                    "type": "number"
+                  },
+                  "reasons": {
+                    "path": "entries[].reasons",
+                    "type": "array",
+                    "length": 1,
+                    "items": {
+                      "path": "entries[].reasons[]",
+                      "type": "string"
+                    }
+                  },
+                  "sourceFactIds": {
+                    "path": "entries[].sourceFactIds",
+                    "type": "array",
+                    "length": 1,
+                    "items": {
+                      "path": "entries[].sourceFactIds[]",
+                      "type": "number"
+                    }
+                  },
+                  "reasoning_text": {
+                    "path": "entries[].reasoning_text",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "assertions": [
+          {
+            "name": "entries.length >= 2",
+            "pass": true,
+            "value": 2
+          },
+          {
+            "name": "every position in [2,5] (after clamp)",
+            "pass": true,
+            "value": [
+              2,
+              5
+            ]
+          },
+          {
+            "name": "entries sorted by position asc",
+            "pass": true
+          },
+          {
+            "name": "confidence in [0,1]",
+            "pass": true
+          }
+        ]
+      },
+      "casePass": true
+    },
+    {
+      "skill": "ranking-article-generation",
+      "label": "too-few-entries (拒绝型)",
+      "expectOk": false,
+      "newPath": {
+        "skill": "ranking-article-generation",
+        "path": "new",
+        "ok": false,
+        "errors": [
+          "entries: Array must contain at least 2 element(s)"
+        ]
+      },
+      "casePass": true
+    }
+  ],
+  "oldPathPresence": {
+    "title-generation": {
+      "shape": "TitleCandidate[]",
+      "present": true
+    },
+    "ranking-article-generation": {
+      "shape": "RankingArticleGenerationOutput",
+      "present": true
+    }
+  }
+}
