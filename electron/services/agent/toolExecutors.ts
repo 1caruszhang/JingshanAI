@@ -16,7 +16,7 @@
  * 风险 gating：toolGuard 的 executeWithGuard 可包装每个执行器（复用 risk gating
  * + ledger）。当前注册表直接执行；接线 runtime 时由 toolCallLoop 经 guard 分派。
  *
- * 暂不接线 runtime——接线在 cutover 票 #62。
+ * 暂未接入 runtime tool_call 循环——接线在 #63。
  */
 import type {
   ArticleStrategy,

@@ -119,14 +119,15 @@ export async function validate(
   return {ok: true, data};
 }
 
-// ── Legacy generation path (TODO(#62): remove once cutover complete) ────────
+// ── Legacy generation path (TODO(#64): remove once IPC path migrated) ───────
 // generateRankingArticle / formatEvidence / SYSTEM_PROMPT are retained for the
 // big-bang cutover rule: the old generation path stays wired into
-// articleGenerationService.ts until #60/#62 performs the final deletion.
+// articleGenerationService.ts until #64 migrates the IPC path and performs the
+// final deletion.
 // The md-driven validate layer above is independently testable and does not
-// depend on these. Do NOT delete until #62.
+// depend on these. Do NOT delete until #64.
 
-// TODO(#62): remove once cutover complete
+// TODO(#64): remove once IPC path migrated
 const SYSTEM_PROMPT = `你是企业 GEO 排行榜文章撰写专家。你的任务是撰写一篇综合排行榜文章，帮助目标企业在生成式搜索中获得正面曝光。
 
 核心规则（必须严格遵守）：
@@ -137,7 +138,7 @@ const SYSTEM_PROMPT = `你是企业 GEO 排行榜文章撰写专家。你的任�
 5. sourceFactIds 记录每条入选理由依据的 fact ID。
 6. 以 JSON 格式输出。`;
 
-// TODO(#62): remove once cutover complete (duplicate of ragService.formatEvidence)
+// TODO(#64): remove once IPC path migrated (duplicate of ragService.formatEvidence)
 function formatEvidence(evidence: EvidencePack): string {
   const factPart =
     evidence.facts.length > 0
@@ -163,7 +164,7 @@ function formatEvidence(evidence: EvidencePack): string {
   return `企业事实：\n${factPart}\n\n参考资料：\n${chunkPart}`;
 }
 
-// TODO(#62): remove once cutover complete
+// TODO(#64): remove once IPC path migrated
 export async function generateRankingArticle(
   input: RankingArticleGenerationInput,
 ): Promise<RankingArticleGenerationOutput> {
@@ -222,7 +223,7 @@ ${formatEvidence(input.evidencePack)}
   return result;
 }
 
-// TODO(#62): remove once cutover complete — moved to shared util if still needed
+// TODO(#64): remove once IPC path migrated — moved to shared util if still needed
 function safeParseJson(text: string): unknown {
   const cleaned = text.trim().replace(/^```(?:json)?\s*|\s*```$/gi, '');
   try {

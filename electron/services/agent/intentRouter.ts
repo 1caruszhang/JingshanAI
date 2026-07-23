@@ -29,11 +29,13 @@
 import {chat} from '../llmService.ts';
 import {blockHookForRoute} from './allowedActionPolicy.ts';
 import {loadPrompt} from '../../prompts/loader.ts';
-import {SKILL_ROUTES, type SkillRoute, getRouteBySkillDir} from './skillRoutes.ts';
+import {SKILL_ROUTES, type SkillRoute, type RouteKind, getRouteBySkillDir} from './skillRoutes.ts';
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
-export type RouteKind = 'md-driven' | 'service' | 'pause';
+// RouteKind 的唯一定义在 skillRoutes.ts；这里 re-export 供 intentRouter 的调用方
+// 从任一模块导入均得到同一类型。
+export type {RouteKind};
 
 export interface RouteCandidate {
   intent: string;

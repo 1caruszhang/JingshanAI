@@ -13,7 +13,7 @@
  * 此模块是纯逻辑层，modelFn 与 executors 全可注入，便于 node:test 集成测试。
  * 不依赖 UnifiedChatMessage 的 tool role 扩展——内部用宽松的 LoopMessage 类型。
  *
- * 暂不接线 runtime——接线在 cutover 票 #62。
+ * 暂未接入 runtime——接线在 #63。
  */
 import type {ToolExecutor, ToolExecContext, ToolResult} from './toolExecutors.ts';
 

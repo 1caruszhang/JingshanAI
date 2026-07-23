@@ -20,7 +20,8 @@
  * Electron app 或 SQLite。
  *
  * 暂不接线 runtime——接线（路由命中 migrated skill 后调用 runMdDrivenSkill）在
- * cutover 票 #62。当前 runMdDrivenSkill 独立存在、可导出、可单测。
+ * #62 已将 runMdDrivenSkill 接入 runtime 主路径（md-driven migrated skill 分派）。
+ * tool_call 循环（toolCallLoop）的接入在 #63。
  */
 import {getSkill} from './skillRegistry.ts';
 import {loadPrompt} from '../../prompts/loader.ts';
