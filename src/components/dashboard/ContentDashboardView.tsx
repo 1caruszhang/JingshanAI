@@ -15,11 +15,10 @@ export default function ContentDashboardView() {
   const { setCurrentProject } = useAppState();
   const { stats, kbHealth, kbAssets, projectStats, loading } = useContentDashboardData();
 
-  const handleOpenProject = (projectId: number, projectName: string) => {
+  const handleOpenProject = (projectId: number) => {
     const project = projectStats.find((s) => s.project.id === projectId)?.project;
     if (project) setCurrentProject(project);
     navigateTo('kbIngest', { projectId });
-    void projectName;
   };
 
   return (
@@ -63,7 +62,7 @@ export default function ContentDashboardView() {
                 return (
                   <button
                     key={project.id}
-                    onClick={() => handleOpenProject(project.id, project.name)}
+                    onClick={() => handleOpenProject(project.id)}
                     className={cn(
                       'w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left',
                       cls(
@@ -76,14 +75,14 @@ export default function ContentDashboardView() {
                       <p className="text-sm font-bold truncate">{project.name}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="secondary" className="text-[10px]">
-                          {entries.length} 条目
+                          {entries.length} {t.contentDashboardEntry ?? '条目'}
                         </Badge>
                         <Badge variant="secondary" className="text-[10px]">
-                          {facts.length} 事实
+                          {facts.length} {t.contentDashboardFact ?? '事实'}
                         </Badge>
                         {pending > 0 && (
                           <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-400/50">
-                            {pending} 待处理
+                            {pending} {t.contentDashboardPending ?? '待处理'}
                           </Badge>
                         )}
                       </div>

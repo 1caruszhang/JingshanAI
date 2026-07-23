@@ -68,7 +68,6 @@ export function useContentDashboardData(): ContentDashboardData {
         const allEntries: KnowledgeEntry[] = projectKbStats.flatMap((s) => s.entries);
         const allFacts: EnterpriseFact[] = projectKbStats.flatMap((s) => s.facts);
         const publishedCount = publishes.filter((p) => p.status === 'published').length;
-        const draftCount = drafts.filter((a) => a.status === 'draft').length;
 
         setStats([
           { label: '知识条目', value: String(allEntries.length), trend: 'up' as const },

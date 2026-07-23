@@ -361,7 +361,7 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
               {indexedCount} {t.kbHealthIndexed ?? '已索引'} / {pendingCount} {t.kbHealthPending ?? '待处理'}
             </span>
             <span className={cls('text-gray-400', 'text-zinc-500')}>
-              {facts.length} 条事实
+              {facts.length} {t.kbFactCountSuffix ?? '条事实'}
             </span>
           </div>
         </div>
@@ -504,7 +504,7 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
                 <div className="text-center py-8">
                   <FileText className={cn('w-12 h-12 mx-auto mb-3', cls('text-gray-300', 'text-zinc-600'))} />
                   <p className={cn('text-sm', cls('text-gray-500', 'text-zinc-400'))}>
-                    暂无资料，请在「{t.enterpriseProfile ?? '企业资料'}」中录入
+                    {(t.kbNoEntriesHint ?? '暂无资料，请在「{tab}」中录入').replace('{tab}', t.enterpriseProfile ?? '企业资料')}
                   </p>
                 </div>
               ) : (
@@ -631,7 +631,7 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
                   ) : (
                     <Card className={cn('p-6 text-center', cls('bg-white', 'bg-[#1c1c1f]'))}>
                       <p className={cn('text-sm', cls('text-gray-500', 'text-zinc-400'))}>
-                        选择左侧事实查看来源片段
+                        {t.kbSelectFactHint ?? '选择左侧事实查看来源片段'}
                       </p>
                     </Card>
                   )}
