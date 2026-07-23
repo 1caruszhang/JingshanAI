@@ -41,11 +41,12 @@ describe('skillRegistry frontmatter expand (#55)', () => {
     assert.equal(loaded.length, dirNames.length);
   });
 
-  it('getSkill(name).frontmatter.needsKb is undefined for existing skills', () => {
+  it('getSkill(name).frontmatter.needsKb is readable for existing skills', () => {
     const skill = getSkill('title-generation');
     assert.ok(skill, 'title-generation skill should exist');
-    // Field must be readable without throwing; existing skills do not declare it.
-    assert.equal(skill!.frontmatter.needsKb, undefined);
+    // Field must be readable without throwing. title-generation now declares
+    // needsKb:false (#57); other legacy skills leave it undefined.
+    assert.equal(skill!.frontmatter.needsKb, false);
   });
 
   it('accepts a minimal frontmatter with only name (legacy fields optional)', () => {

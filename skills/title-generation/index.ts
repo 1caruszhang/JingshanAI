@@ -20,6 +20,57 @@ const OutputSchema = z.object({
   titles: z.array(TitleItemSchema),
 });
 
+/**
+ * md-driven 校验层（#57）的输出类型。
+ */
+export type TitleGenerationOutput = z.infer<typeof OutputSchema>;
+
+/**
+ * validate 的返回类型：成功返回结构化数据，失败返回错误信息列表。
+ */
+export type ValidationResult =
+  | {ok: true; data: TitleGenerationOutput}
+  | {ok: false; errors: string[]};
+
+/**
+ * md-driven 校验层（#57）：接收 LLM 原始输出文本（或已解析对象），
+ * 经 JSON parse → Zod safeParse 后返回 ok/data 或 ok:false/errors。
+ *
+ * 与旧的 `generateTitles` 并存，供 #62 cutover 后替代旧生成路径。
+ */
+export async function validate(
+  rawOutput: string | unknown,
+  _ctx?: unknown,
+): Promise<ValidationResult> {
+  let parsed: unknown = rawOutput;
+  if (typeof rawOutput === 'string') {
+    const cleaned = rawOutput.trim().replace(/^```(?:json)?\s*|\s*```$/gi, '');
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (err) {
+      return {
+        ok: false,
+        errors: [`JSON parse failed: ${(err as Error).message}`],
+      };
+    }
+  }
+
+  const result = OutputSchema.safeParse(parsed);
+  if (!result.success) {
+    return {
+      ok: false,
+      errors: result.error.issues.map(
+        (i) => `${i.path.join('.')}: ${i.message}`,
+      ),
+    };
+  }
+
+  return {ok: true, data: result.data};
+}
+
+// TODO(#62): remove SYSTEM_PROMPT / formatFacts / generateTitles once the
+// md-driven cutover is complete. Kept for now because handlers.ts still imports
+// generateTitles; the new md-driven path uses `validate` above.
 const SYSTEM_PROMPT = `你是企业 GEO 优化标题专家。基于目标问题和企业事实，生成 3-5 个标题候选并评分。
 标题原则：
 1. 像用户向 AI 提问的方式，包含决策意图（推荐/怎么选/哪家好/排行榜）
