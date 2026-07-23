@@ -1,6 +1,7 @@
 // 视图路由
 export type View =
   | 'dashboard'
+  | 'contentDashboard'
   | 'aiAgent'
   | 'drafts'
   | 'autoLearning'

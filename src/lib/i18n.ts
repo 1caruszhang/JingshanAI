@@ -1,6 +1,7 @@
 export const i18n = {
   zh: {
     dashboard: '仪表盘',
+    contentDashboard: '内容资产',
     aiAgent: '智能Agent',
     drafts: '稿件管理',
     autoLearning: '自动学习',
@@ -10,6 +11,9 @@ export const i18n = {
     search: '搜索...',
     greeting: '你好，GEO Agent',
     dashboardSubtitle: '随时掌控 GEO 优化进度与企业知识库状态。',
+    contentDashboardTitle: '内容资产看板',
+    contentDashboardSubtitle: '跨项目聚合知识库与内容生产资产，掌握全局健康度。',
+    contentDashboardProjectList: '项目知识库',
     chatPlaceholder: '描述你的 3D 对象或场景...',
     newChat: '新对话',
     chatWelcomeTitle: '你好，GEO Agent',
@@ -332,6 +336,7 @@ export const i18n = {
   },
   en: {
     dashboard: 'Dashboard',
+    contentDashboard: 'Content Assets',
     aiAgent: 'AI Agent',
     drafts: 'Drafts',
     autoLearning: 'Auto Learning',
@@ -341,6 +346,9 @@ export const i18n = {
     search: 'Search...',
     greeting: 'Hello, GEO Agent',
     dashboardSubtitle: 'Keep track of GEO optimization progress and enterprise knowledge base status.',
+    contentDashboardTitle: 'Content Assets Dashboard',
+    contentDashboardSubtitle: 'Aggregate knowledge base and content production assets across projects.',
+    contentDashboardProjectList: 'Project Knowledge Bases',
     chatPlaceholder: 'Describe your 3D object or scene...',
     newChat: 'New Chat',
     chatWelcomeTitle: 'Hello, GEO Agent',

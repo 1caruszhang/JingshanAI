@@ -26,6 +26,16 @@ export const publishService = {
     ) as Promise<PublishRecord[]>;
   },
 
+  async getAll(): Promise<PublishRecord[]> {
+    return dbApi.query(
+      `SELECT id, artifact_id, project_id, platform, channel_name, channel_type,
+              publish_title, external_id, published_url, status,
+              estimated_price, actual_price, published_at, created_at
+       FROM publish_records
+       ORDER BY created_at DESC`,
+    ) as Promise<PublishRecord[]>;
+  },
+
   async publish(artifactId: number, platform: string): Promise<number> {
     const result = await dbApi.exec(
       `INSERT INTO publish_records (

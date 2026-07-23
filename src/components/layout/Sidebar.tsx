@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings, FileText, BookOpen, Globe, ChevronRight, Plus, ChevronDown, X, PanelLeftClose, Trash2, HelpCircle, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Settings, FileText, BookOpen, Globe, ChevronRight, Plus, ChevronDown, X, PanelLeftClose, Trash2, HelpCircle, Sparkles, Database } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/lib/toast';
@@ -21,8 +21,9 @@ interface SidebarProps {
   onCloseMobile: () => void;
 }
 
-const mainMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'dashboard' | 'aiAgent' | 'autoLearning' | 'aiWebBuilder' }[] = [
+const mainMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'dashboard' | 'contentDashboard' | 'aiAgent' | 'autoLearning' | 'aiWebBuilder' }[] = [
   { id: 'dashboard', icon: LayoutDashboard, labelKey: 'dashboard' },
+  { id: 'contentDashboard', icon: Database, labelKey: 'contentDashboard' },
   { id: 'aiAgent', icon: Settings, labelKey: 'aiAgent' },
   { id: 'autoLearning', icon: BookOpen, labelKey: 'autoLearning' },
   { id: 'aiWebBuilder', icon: Globe, labelKey: 'aiWebBuilder' },

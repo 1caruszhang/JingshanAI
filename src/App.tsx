@@ -3,6 +3,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import LayoutShell from './components/layout/LayoutShell';
 import DashboardView from './components/dashboard/DashboardView';
+import ContentDashboardView from './components/dashboard/ContentDashboardView';
 import ChatInterface from './components/chat/ChatInterface';
 import DraftsView from './components/drafts/DraftsView';
 import HumanReviewView from './components/drafts/HumanReviewView';
@@ -25,6 +26,7 @@ function KbIngestWrapper() {
 
 const viewComponents: Record<View, React.ComponentType> = {
   dashboard: DashboardView,
+  contentDashboard: ContentDashboardView,
   aiAgent: ChatInterface,
   drafts: DraftsView,
   autoLearning: AutoLearningView,

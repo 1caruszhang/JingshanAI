@@ -5,8 +5,6 @@ import StatCards from './StatCards';
 import ActivityChart from './ActivityChart';
 import ActionItemsPanel from './ActionItemsPanel';
 import RecentActivityFeed from './RecentActivityFeed';
-import QuickStartCards from './QuickStartCards';
-import KbHealthPanel from './KbHealthPanel';
 import VisibilityPanel from './VisibilityPanel';
 import HypothesisPanel from './HypothesisPanel';
 import { useDashboardData } from './useDashboardData';
@@ -14,7 +12,7 @@ import { useDashboardData } from './useDashboardData';
 export default function DashboardView() {
   const { t, cls, lang } = useTheme();
   const { currentUser } = useAppState();
-  const { stats, trend, actions, activities, kbHealth, kbAssets, visibilityChecks, hypothesisRules, loading } = useDashboardData();
+  const { stats, trend, actions, activities, visibilityChecks, hypothesisRules, loading } = useDashboardData();
 
   const userName = currentUser?.userName?.trim();
   const greeting = userName
@@ -41,11 +39,7 @@ export default function DashboardView() {
         <ActionItemsPanel items={actions} loading={loading} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <RecentActivityFeed items={activities} loading={loading} />
-        <QuickStartCards />
-        <KbHealthPanel health={kbHealth} assets={kbAssets} loading={loading} />
-      </div>
+      <RecentActivityFeed items={activities} loading={loading} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <VisibilityPanel checks={visibilityChecks} loading={loading} />

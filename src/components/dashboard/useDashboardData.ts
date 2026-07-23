@@ -49,7 +49,7 @@ function countWords(text: string | null): number {
   return cnCount + enCount;
 }
 
-function buildKbHealth(entries: KnowledgeEntry[]): KbHealth {
+export function buildKbHealth(entries: KnowledgeEntry[]): KbHealth {
   const indexed = entries.filter((e) => e.status === 'indexed').length;
   const pending = entries.filter((e) => e.status === 'pending').length;
   const total = entries.length;
@@ -57,7 +57,7 @@ function buildKbHealth(entries: KnowledgeEntry[]): KbHealth {
   return { health, indexed, pending };
 }
 
-function buildKbAssets(entries: KnowledgeEntry[]): KbAsset[] {
+export function buildKbAssets(entries: KnowledgeEntry[]): KbAsset[] {
   return entries.slice(0, 5).map((entry) => ({
     name: entry.title,
     status: entry.status === 'indexed' ? 'indexed' : 'pending',
@@ -164,8 +164,6 @@ export function useDashboardData() {
   const [trend, setTrend] = useState<{date: string; value: number}[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
-  const [kbHealth, setKbHealth] = useState<KbHealth>({health: 0, indexed: 0, pending: 0});
-  const [kbAssets, setKbAssets] = useState<KbAsset[]>([]);
   const [visibilityChecks, setVisibilityChecks] = useState<VisibilityCheckItem[]>([]);
   const [hypothesisRules, setHypothesisRules] = useState<HypothesisItem[]>([]);
 
@@ -178,7 +176,6 @@ export function useDashboardData() {
         const projects = await projectService.getAll();
         const projectCount = projects.length;
 
-        let entries: KnowledgeEntry[] = [];
         let facts: EnterpriseFact[] = [];
         let tasks: AgentTask[] = [];
         let publishes: PublishRecord[] = [];
@@ -187,11 +184,6 @@ export function useDashboardData() {
         let drafts: AgentArtifact[] = [];
 
         if (currentProject) {
-          try {
-            entries = await knowledgeBaseService.getEntriesByProject(currentProject.id);
-          } catch {
-            entries = [];
-          }
           try {
             facts = await factService.getByProject(currentProject.id);
           } catch {
@@ -229,22 +221,17 @@ export function useDashboardData() {
 
         const publishedCount = publishes.filter((p) => p.status === 'published').length;
         const hitCount = checks.filter((c) => c.mentioned || c.cited).length;
-        const pendingCount = entries.filter((e) => e.status === 'pending').length;
 
         setStats([
           { label: '项目数', value: String(projectCount), change: projectCount > 0 ? 'live' : '0', trend: 'up' as const },
-          { label: '知识库', value: String(entries.length), change: undefined, trend: 'up' as const },
           { label: '生成任务', value: String(tasks.length), change: undefined, trend: 'up' as const },
           { label: '已发布', value: String(publishedCount), change: undefined, trend: publishedCount > 0 ? 'up' : 'down' },
           { label: '可见性命中', value: String(hitCount), change: undefined, trend: hitCount > 0 ? 'up' : 'down' },
-          { label: '待处理', value: String(pendingCount), change: undefined, trend: 'down' as const },
         ]);
 
         setTrend(buildTrend(tasks));
         setActions(buildActions(facts, drafts));
         setActivities(buildActivities(tasks, publishes));
-        setKbHealth(buildKbHealth(entries));
-        setKbAssets(buildKbAssets(entries));
         setVisibilityChecks(buildVisibilityChecks(checks));
         setHypothesisRules(buildHypotheses(hypotheses));
       } finally {
@@ -265,8 +252,6 @@ export function useDashboardData() {
     trend,
     actions,
     activities,
-    kbHealth,
-    kbAssets,
     visibilityChecks,
     hypothesisRules,
     loading,
