@@ -4,14 +4,12 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Progress} from '@/components/ui/progress';
-import {Badge} from '@/components/ui/badge';
-import {dialogApi, factApi} from '@/lib/electron-api';
+import {dialogApi} from '@/lib/electron-api';
 import {useTheme} from '@/hooks/use-theme';
 import {useView} from '@/context/ViewContext';
 import {useAppState} from '@/context/AppStateContext';
 import {projectService} from '@/services/projectService';
 import {knowledgeBaseService} from '@/services/knowledgeBaseService';
-import PendingFactChatCard, {FactItem} from '@/components/facts/PendingFactChatCard';
 import {cn} from '@/lib/utils';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
 import {
@@ -19,16 +17,13 @@ import {
   FileText,
   X,
   Sparkles,
-  CheckCircle2,
   ArrowRight,
-  ArrowLeft,
   Loader2,
   Building2,
   MapPin,
   Tag,
   Briefcase,
   Phone,
-  Trash2,
 } from 'lucide-react';
 
 interface SelectedFile {
@@ -52,16 +47,13 @@ export default function KbCreateView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resetRef = useRef(false);
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2>(1);
   const [files, setFiles] = useState<SelectedFile[]>([]);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [domain, setDomain] = useState<'local_service' | 'saas' | 'ecommerce' | ''>('');
   const [textContent, setTextContent] = useState('');
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
-  const [createdProjectId, setCreatedProjectId] = useState<number | null>(null);
-  const [pendingFacts, setPendingFacts] = useState<FactItem[]>([]);
-  const [entryCount, setEntryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   // 新建项目时重置为初始状态
@@ -75,9 +67,6 @@ export default function KbCreateView() {
       setTextContent('');
       setProgress(0);
       setStatusMessage('');
-      setCreatedProjectId(null);
-      setPendingFacts([]);
-      setEntryCount(0);
       setError(null);
       navigateTo('kbCreate', {reset: false});
     }
@@ -99,8 +88,6 @@ export default function KbCreateView() {
     files.length > 0 ||
     textContent.trim().length > 0 ||
     Object.values(formData).some((v) => v?.trim());
-
-  const allFactsReviewed = pendingFacts.length > 0 && pendingFacts.every((f) => f.status !== 'candidate');
 
   const handleFileSelect = async () => {
     const paths = await dialogApi.openFile({
@@ -138,7 +125,6 @@ export default function KbCreateView() {
         description: projectDescription,
         domain: domain || null,
       });
-      setCreatedProjectId(projectId);
       setProgress(20);
 
       const entries: {title: string; type: 'text' | 'file'; value: string}[] = [];
@@ -170,40 +156,25 @@ export default function KbCreateView() {
           await knowledgeBaseService.ingestFile(projectId, entry.title, entry.value);
         }
         completed++;
-        setProgress(20 + Math.round((completed / total) * 50));
+        setProgress(20 + Math.round((completed / total) * 70));
       }
 
-      setStatusMessage(t.kbExtractingFacts ?? '正在抽取企业事实...');
-      await factApi.extract({projectId});
-      const pending = await factApi.listPending({projectId});
-      setPendingFacts(pending.slice(0, 20));
-      setEntryCount(entries.length);
       setProgress(100);
-      setStep(3);
+
+      // 激活项目并直接进入知识库（事实审核归入 kbIngest）
+      await projectService.update(projectId, {status: 'active'});
+      const project = await projectService.getById(projectId);
+      if (project) {
+        setCurrentProject(project);
+      }
+      triggerRefreshProjects();
+      navigateTo('kbIngest', {projectId});
     } catch (err) {
       console.error('Ingestion failed:', err);
       setError(err instanceof Error ? err.message : '创建失败');
       setStep(1);
     }
-  }, [domain, formData, files, projectDescription, projectName, textContent, t.kbExtractingFacts]);
-
-  const handleFinish = async () => {
-    if (createdProjectId) {
-      try {
-        await projectService.update(createdProjectId, {status: 'active'});
-        const project = await projectService.getById(createdProjectId);
-        if (project) {
-          setCurrentProject(project);
-        }
-        triggerRefreshProjects();
-      } catch (err) {
-        console.error('Failed to activate project:', err);
-      }
-      navigateTo('kbIngest', {projectId: createdProjectId});
-    } else {
-      navigateTo('dashboard');
-    }
-  };
+  }, [domain, formData, files, navigateTo, projectDescription, projectName, setCurrentProject, textContent, triggerRefreshProjects]);
 
   const renderStep1 = () => (
     <div className="space-y-6">
@@ -343,55 +314,12 @@ export default function KbCreateView() {
     </Card>
   );
 
-  const renderStep3 = () => {
-    if (pendingFacts.length > 0 && !allFactsReviewed) {
-      return (
-        <div className="space-y-6">
-          <Card className={cn('p-6', cls('bg-white', 'bg-[#1c1c1f]'))}>
-            <h3 className="text-lg font-bold mb-2">{t.kbFactReviewTitle}</h3>
-            <p className={cn('text-sm mb-4', cls('text-gray-500', 'text-zinc-400'))}>
-              {t.kbFactReviewHint}
-            </p>
-            <PendingFactChatCard
-              facts={pendingFacts}
-              onPendingChange={setPendingFacts}
-            />
-          </Card>
-        </div>
-      );
-    }
-
-    return (
-      <Card className={cn('p-12 text-center', cls('bg-white', 'bg-[#1c1c1f]'))}>
-        <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-6">
-          <CheckCircle2 className="w-8 h-8 text-emerald-500" />
-        </div>
-        <h3 className="text-xl font-bold mb-2">{t.kbFactReviewComplete}</h3>
-        <p className={cn('text-sm', cls('text-gray-500', 'text-zinc-400'))}>
-          {pendingFacts.length > 0
-            ? `项目“${projectName}”已创建，共录入 ${entryCount} 条资料，已确认 ${pendingFacts.filter((f) => f.status === 'confirmed').length} 条事实。`
-            : `项目“${projectName}”已创建，共录入 ${entryCount} 条资料。`}
-        </p>
-        <div className="mt-6 flex justify-center gap-3">
-          <Button variant="outline" onClick={() => navigateTo('dashboard')} className="gap-2">
-            <ArrowLeft className="w-4 h-4" />
-            {t.kbBackToDashboard}
-          </Button>
-          <Button onClick={handleFinish} className="gap-2">
-            {t.kbEnterKnowledgeBase}
-            <ArrowRight className="w-4 h-4" />
-          </Button>
-        </div>
-      </Card>
-    );
-  };
-
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold">创建企业知识库</h1>
         <p className={cn('text-sm mt-1', cls('text-gray-500', 'text-zinc-400'))}>
-          填写企业信息并上传资料，系统将自动建立项目与知识库。
+          填写企业信息并上传资料，系统将自动建立项目与知识库，完成后进入知识库审核。
         </p>
       </div>
 
@@ -399,7 +327,6 @@ export default function KbCreateView() {
         {[
           {num: 1, label: '填写资料'},
           {num: 2, label: '创建录入'},
-          {num: 3, label: '完成建立'},
         ].map((s) => (
           <div key={s.num} className="flex items-center gap-2">
             <div
@@ -415,14 +342,13 @@ export default function KbCreateView() {
               </span>
               {s.label}
             </div>
-            {s.num < 3 && <ArrowRight className="w-4 h-4 text-gray-300 dark:text-zinc-700" />}
+            {s.num < 2 && <ArrowRight className="w-4 h-4 text-gray-300 dark:text-zinc-700" />}
           </div>
         ))}
       </div>
 
       {step === 1 && renderStep1()}
       {step === 2 && renderStep2()}
-      {step === 3 && renderStep3()}
     </div>
   );
 }

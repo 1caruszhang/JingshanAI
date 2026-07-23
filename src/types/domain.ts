@@ -7,8 +7,6 @@ export type View =
   | 'aiWebBuilder'
   | 'kbIngest'
   | 'kbCreate'
-  | 'factReview'
-  | 'enterpriseProfile'
   | 'questionPool'
   | 'sourceDiscovery'
   | 'articleGeneration'
