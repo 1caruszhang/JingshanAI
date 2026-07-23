@@ -2,7 +2,7 @@ import {buildEvidencePack} from '../ragService.ts';
 import {getProject} from '../projectService.ts';
 import {generateSupportArticle} from '../../../skills/support-article-generation/index.ts';
 import {planSupportArticle} from '../../../skills/support-article-planning/index.ts';
-import {generateRankingArticle} from '../../../skills/ranking-article-generation/index.ts';
+import {runMdDrivenSkill} from '../agent/mdDrivenRunner.ts';
 import {
   createArticle,
   countConfirmedFacts,
@@ -139,54 +139,68 @@ export async function generateRankingArticleEntry(
     );
   }
 
-  const evidence = await buildEvidencePack(input.projectId, input.targetQuestion);
+  // md-driven 路径（#64 follow-up）：runMdDrivenSkill 走 tool_call 循环，
+  // 由工具执行器自动完成 create_article_placeholder / finalize_article /
+  // save_ranking_entries / parse_claims 副作用。这里通过自定义 executorContext
+  // 捕获工具创建的 artifactId，以便结束后查回 artifact/meta/claims。
+  let artifactId: number | null = null;
+  const executorContext = {
+    createArticle: (ai: Parameters<typeof createArticle>[0]) => {
+      const result = createArticle(ai);
+      artifactId = result.artifact.id;
+      return result;
+    },
+    finalizeArticle: (id: number, title: string, content: string) =>
+      finalizeArticleAfterGeneration(id, title, content),
+    createRankingArticleItems: (id: number, projId: number, entries: unknown[]) =>
+      createRankingArticleItems(id, projId, entries as Parameters<typeof createRankingArticleItems>[2]),
+    parseClaims: (id: number) => parseClaims(id) as Promise<unknown[]>,
+  };
 
-  // 先创建占位记录，status = 'generating'
-  const placeholder = createArticle({
-    projectId: input.projectId,
-    strategy: 'ranking_article',
-    targetQuestion: input.targetQuestion,
-    title: '生成中...',
-    content: '',
-    status: 'generating',
-  });
-  const artifactId = placeholder.artifact.id;
-
+  let result;
   try {
-    const rankingOutput = await generateRankingArticle({
-      projectName: project.name,
-      targetQuestion: input.targetQuestion,
-      competitors: input.competitors,
-      evidencePack: evidence,
+    result = await runMdDrivenSkill('ranking-article-generation', {
+      projectId: input.projectId,
+      taskArgs: {
+        projectName: project.name,
+        targetQuestion: input.targetQuestion,
+        competitors: input.competitors,
+        strategy: 'ranking_article',
+      },
+      userMessage: input.targetQuestion,
+      executorContext,
     });
-
-    const title = rankingOutput.title;
-
-    // 更新内容和标题，status = 'draft'
-    finalizeArticleAfterGeneration(artifactId, title, rankingOutput.content);
-
-    // 保存排行榜条目
-    if (rankingOutput.entries && rankingOutput.entries.length > 0) {
-      createRankingArticleItems(artifactId, input.projectId, rankingOutput.entries);
-    }
-
-    // 自动生成 Claim 抽取
-    await parseClaims(artifactId);
-
-    const claims = getClaimsByArtifactId(artifactId);
-    const finalArtifact = getArtifactById(artifactId)!;
-    const finalMeta = getArticleMetaByArtifactId(artifactId)!;
-
-    return {artifact: finalArtifact, meta: finalMeta, claims};
   } catch (err) {
-    // 生成失败：更新 status = 'failed'
-    try {
-      updateArticleStatus(artifactId, 'failed');
-    } catch {
-      // ignore secondary failure
+    if (artifactId !== null) {
+      try {
+        updateArticleStatus(artifactId, 'failed');
+      } catch {
+        // ignore secondary failure
+      }
     }
     throw err;
   }
+
+  if (result.ok !== true) {
+    if (artifactId !== null) {
+      try {
+        updateArticleStatus(artifactId, 'failed');
+      } catch {
+        // ignore secondary failure
+      }
+    }
+    throw new Error(`排行榜文章生成失败：${result.errors.join('; ')}`);
+  }
+
+  if (artifactId === null) {
+    throw new Error('排行榜文章生成完成但未创建 artifact（工具循环未触发 create_article_placeholder）');
+  }
+
+  const claims = getClaimsByArtifactId(artifactId);
+  const finalArtifact = getArtifactById(artifactId)!;
+  const finalMeta = getArticleMetaByArtifactId(artifactId)!;
+
+  return {artifact: finalArtifact, meta: finalMeta, claims};
 }
 
 export function getArticleDetail(artifactId: number): {
