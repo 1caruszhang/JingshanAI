@@ -19,6 +19,10 @@ import {
   buildSystemPrompt,
   getFactTypesForDomain,
 } from '../electron/services/agent/geoAgentSystemPrompt.ts';
+import {
+  setSnapshotProviderForTests,
+  resetSnapshotProviderForTests,
+} from '../electron/services/agent/allowedActionPolicy.ts';
 
 const skillsDir = join(process.cwd(), 'skills');
 
@@ -53,9 +57,35 @@ loadAllSkills({skillsDir});
 _resetRouteTable();
 
 // ── #26 intentRouter ─────────────────────────────────────────────────────────
+//
+// Note: as of #27, `route()` auto-applies the allowedActionPolicy default
+// hook. The two routing tests below that expect a `{type:'skill'}` result
+// inject a satisfying snapshot so they exercise the routing tier in isolation
+// — they are testing #26's routing behaviour, not #27's precondition gating.
+
+const SATISFIED_SNAPSHOT = {
+  confirmedFactsCount: 5,
+  hasSelectedQuestion: true,
+  hasKnowledgeEntries: true,
+  hasApprovedDraft: true,
+};
+
+async function withSnapshotAsync<T>(
+  snap: typeof SATISFIED_SNAPSHOT,
+  fn: () => Promise<T>,
+): Promise<T> {
+  setSnapshotProviderForTests(() => snap);
+  try {
+    return await fn();
+  } finally {
+    resetSnapshotProviderForTests();
+  }
+}
 
 await checkAsync('#26 「帮我生成问题」 routes to a skill', async () => {
-  const result = await route('帮我生成问题', {projectDomain: null});
+  const result = await withSnapshotAsync(SATISFIED_SNAPSHOT, () =>
+    route('帮我生成问题', {projectDomain: null}),
+  );
   if (result.type !== 'skill') {
     throw new Error(`expected skill, got ${JSON.stringify(result)}`);
   }
@@ -72,7 +102,9 @@ await checkAsync('#26 「blahblahblah」 falls back to status_diagnosis', async 
 await checkAsync('#26 domain filter: local_service excludes SaaS-only skills', async () => {
   // With domain = local_service, candidate set is restricted. A SaaS-tilted
   // message should still resolve via generic skills or fall back cleanly.
-  const result = await route('帮我生成排行榜文章', {projectDomain: 'local_service'});
+  const result = await withSnapshotAsync(SATISFIED_SNAPSHOT, () =>
+    route('帮我生成排行榜文章', {projectDomain: 'local_service'}),
+  );
   if (result.type === 'skill') {
     console.log(`    → matched skill: ${result.skillName}`);
   }

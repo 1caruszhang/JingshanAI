@@ -10,6 +10,7 @@ capabilities:
   - generate_ranking_outline
   - structure_ranking_content
 preconditions:
+  - selected_question_exists
   - ranking_entries_count >= 2
   - ranking_theme_selected
 risk_level: low

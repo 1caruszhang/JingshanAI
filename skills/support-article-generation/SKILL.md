@@ -12,6 +12,7 @@ capabilities:
   - create_geo_content
 preconditions:
   - confirmed_facts_count > 0
+  - selected_question_exists
   - evidence_pack_available
   - article_outline_available
 risk_level: low

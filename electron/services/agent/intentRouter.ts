@@ -24,6 +24,7 @@
 import {chat} from '../llmService';
 import {loadAllSkills, type LoadedSkill} from './skillRegistry';
 import type {SkillDomain} from './skillRegistry';
+import {blockHookForRoute} from './allowedActionPolicy';
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -42,8 +43,10 @@ export interface RouteContext {
  * router returns `{type:'skill'}`. If the hook returns a non-null string the
  * router emits `{type:'blocked', skillName, reason: <that string>}` instead.
  *
- * T5 (`allowedActionPolicy.ts`) owns this slot; until T5 delivers a real
- * implementation, leave the hook undefined and the route will never block.
+ * When `route()` is called without an explicit hook, the router automatically
+ * uses `allowedActionPolicy.blockHookForRoute(context)` (T5), so every route
+ * is gated by the Skill-level precondition policy. Pass your own hook to
+ * override (e.g. a future runtime layer that composes additional rules).
  */
 export type BlockPolicyHook = (skillName: string, context: RouteContext) => string | null;
 
@@ -257,7 +260,12 @@ export async function route(
   // Tier 1 — rule match
   const ruleHit = ruleMatch(userMessage, candidates);
   if (ruleHit) {
-    return resolveWithPolicy(ruleHit.entry.skill.dirName, context, blockHook, 0.5 + ruleHit.score * 0.1);
+    return resolveWithPolicy(
+      ruleHit.entry.skill.dirName,
+      context,
+      blockHook,
+      0.5 + ruleHit.score * 0.1,
+    );
   }
 
   // Tier 2 — semantic match (DeepSeek). Failure must not throw.
@@ -271,9 +279,14 @@ export async function route(
 }
 
 /**
- * After a rule or semantic match, evaluate the T5 block policy hook (if
- * provided). If the hook returns a reason string the router returns `blocked`;
- * otherwise the skill route is emitted.
+ * After a rule or semantic match, evaluate the block policy hook. If the hook
+ * returns a reason string the router returns `blocked`; otherwise the skill
+ * route is emitted.
+ *
+ * When the caller does not supply an explicit `blockHook`, the router falls
+ * back to `allowedActionPolicy.blockHookForRoute(context)` so every `route()`
+ * call is automatically gated by the Skill-level precondition policy (T5).
+ * Callers that pass their own hook take precedence.
  */
 function resolveWithPolicy(
   skillName: string,
@@ -281,11 +294,10 @@ function resolveWithPolicy(
   blockHook?: BlockPolicyHook,
   confidence: number = 0.5,
 ): RouteResult {
-  if (blockHook) {
-    const reason = blockHook(skillName, context);
-    if (reason !== null) {
-      return {type: 'blocked', skillName, reason};
-    }
+  const effectiveHook = blockHook ?? blockHookForRoute(context);
+  const reason = effectiveHook(skillName, context);
+  if (reason !== null) {
+    return {type: 'blocked', skillName, reason};
   }
   return {type: 'skill', skillName, params: {}, confidence: Math.min(0.99, confidence)};
 }

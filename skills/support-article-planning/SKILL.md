@@ -11,6 +11,7 @@ capabilities:
   - create_content_brief
 preconditions:
   - confirmed_facts_count > 0
+  - selected_question_exists
   - evidence_pack_available
 risk_level: low
 requires_confirmation: false

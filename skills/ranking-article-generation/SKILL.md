@@ -11,6 +11,7 @@ capabilities:
   - create_competitive_ranking
 preconditions:
   - confirmed_facts_count > 0
+  - selected_question_exists
   - evidence_pack_available
   - ranking_theme_selected
   - ranking_criteria_defined
