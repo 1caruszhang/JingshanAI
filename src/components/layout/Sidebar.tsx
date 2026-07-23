@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings, FileText, BookOpen, Globe, LogOut, ChevronRight, Plus, ChevronDown, X, PanelLeftClose, Trash2, Building2, ClipboardCheck, HelpCircle, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Settings, FileText, BookOpen, Globe, ChevronRight, Plus, ChevronDown, X, PanelLeftClose, Trash2, Building2, ClipboardCheck, HelpCircle, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/lib/toast';
@@ -411,15 +411,6 @@ export default function Sidebar({ activeView, onNavigate, collapsed, onToggleCol
           >
             <Settings className="w-[18px] h-[18px]" />
             <span className={cn(collapsed ? 'xl:hidden' : 'block')}>{t.settings}</span>
-          </button>
-          <button
-            className={cn(
-              'flex items-center gap-3 px-3 py-2.5 w-full rounded-2xl font-bold text-[14px] transition-colors',
-              cls('text-gray-500 hover:bg-gray-50', 'text-gray-400 hover:bg-white/5')
-            )}
-          >
-            <LogOut className="w-[18px] h-[18px]" />
-            <span className={cn(collapsed ? 'xl:hidden' : 'block')}>{t.logOut}</span>
           </button>
         </div>
       </aside>

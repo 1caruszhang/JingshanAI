@@ -461,6 +461,11 @@ export interface AppSetting {
   updated_at: string;
 }
 
+// 用户设置（#37 登录信息进设置；本轮仅用户名，手机号/公司等留待真实账号体系）
+export interface UserSettings {
+  userName: string;
+}
+
 // Assistant Runtime
 export interface AssistantRun {
   id: number;

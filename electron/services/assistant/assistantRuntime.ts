@@ -7,6 +7,7 @@ import type {AssistantStreamEvent} from './types.ts';
 import type {UnifiedChatMessage} from '../models/types.ts';
 import {getDb} from '../../db/connection.ts';
 import type {ChatMessage} from '@/types/domain';
+import {loadPrompt} from '../../prompts/loader.ts';
 
 export interface StartAssistantRunInput {
   sessionId?: number | null;
@@ -72,6 +73,16 @@ export async function startRun(
     if (input.sessionId) {
       const history = getHistory(input.sessionId);
       messages.push(...history);
+    }
+
+    // Inject soul.md as the system prompt (single system message — Doubao
+    // routes only the first system message to `instructions`, so merge rather
+    // than add a second system message).
+    const soul = loadPrompt('soul');
+    if (messages.length > 0 && messages[0].role === 'system') {
+      messages[0] = {role: 'system', content: `${soul}\n\n${messages[0].content}`};
+    } else {
+      messages.unshift({role: 'system', content: soul});
     }
 
     let fullText = '';

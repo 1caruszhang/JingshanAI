@@ -57,6 +57,7 @@ import {
   RagAskSchema,
   ReflectionIdSchema,
   ReflectionListSchema,
+  SettingsUpdateSchema,
   ToolApprovalRespondSchema,
   VectorSearchSchema,
   VisibilityCheckSchema,
@@ -105,6 +106,7 @@ import {
   updateArticleContent,
 } from '../services/article/articleRepository.ts';
 import {startRun, cancelRun, resolveToolApproval} from '../services/assistant/assistantRuntime.ts';
+import {getUserSettings, updateUserSettings} from '../services/settingsService.ts';
 import type {IpcChannels} from './channels.ts';
 import type {
   AgentArtifact,
@@ -799,5 +801,15 @@ export function registerIpcHandlers() {
 
   createHandler('window:platform', () => {
     return process.platform;
+  });
+
+  // 用户设置（#37 登录信息进设置）
+  createHandler('settings:get', () => {
+    return getUserSettings();
+  });
+
+  createHandler('settings:set', (patch) => {
+    const validated = SettingsUpdateSchema.parse(patch);
+    return updateUserSettings(validated);
   });
 }

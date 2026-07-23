@@ -8,6 +8,7 @@ import {askQuestion} from '../ragService.ts';
 import {embedText} from '../embedding.ts';
 import {getDb} from '../../db/connection.ts';
 import {buildSystemPrompt, getFactTypesForDomain} from './geoAgentSystemPrompt.ts';
+import {loadPrompt} from '../../prompts/loader.ts';
 import {executeWithGuard, type GuardedToolCallOptions} from './toolGuard.ts';
 import {generateQuestions} from '../article/questionPoolService.ts';
 import {discoverSources} from '../article/sourceDiscoveryService.ts';
@@ -322,8 +323,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
       const response = await model.invoke([
         {
           role: 'system',
-          content:
-            '你是 GEO Agent。当前未选择项目。请基于通用知识回答用户问题，不要引用具体企业知识库。回答简洁专业。',
+          content: `${loadPrompt('soul')}\n\n当前未选择项目。请基于通用知识回答用户问题，不要引用具体企业知识库。回答简洁专业。`,
         },
         {role: 'user', content: input.query},
       ]);

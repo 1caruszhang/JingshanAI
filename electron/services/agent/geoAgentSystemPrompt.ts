@@ -14,6 +14,7 @@
 
 import {loadAllSkills, type LoadedSkill} from './skillRegistry';
 import type {SkillDomain} from './skillRegistry';
+import {loadPrompt} from '../../prompts/loader.ts';
 
 export interface SystemPromptContext {
   projectId?: number;
@@ -87,7 +88,12 @@ const DOMAIN_FALLBACK_GUIDELINES: Record<SkillDomain, string> = {
 // ── Prompt builders ─────────────────────────────────────────────────────────
 
 function buildGlobalPrompt(): string {
-  return `你是 GEO Agent（企业生成式引擎优化助手）。当前用户**未选择任何项目**，你处于 Global Chat 模式。
+  const soul = loadPrompt('soul');
+  return `${soul}
+
+---
+
+当前用户**未选择任何项目**，你处于 Global Chat 模式。
 
 你可以做的事情：
 - 回答用户关于 GEO、AI 搜索、内容优化的一般性问题。
@@ -106,8 +112,13 @@ function buildProjectPrompt(context: SystemPromptContext): string {
   const {projectId, projectName, projectDomain} = context;
 
   const domainSection = buildDomainSection(projectDomain);
+  const soul = loadPrompt('soul');
 
-  return `你是 GEO Agent（企业生成式引擎优化助手）。当前已选择项目${projectName ? `「${projectName}」` : ''} (ID = ${projectId})${projectDomain ? `，domain = ${projectDomain}` : ''}，你处于 Project-aware GEO Agent 模式。
+  return `${soul}
+
+---
+
+当前已选择项目${projectName ? `「${projectName}」` : ''} (ID = ${projectId})${projectDomain ? `，domain = ${projectDomain}` : ''}，你处于 Project-aware GEO Agent 模式。
 
 可用工具：
 - kb_search：在项目知识库中检索相关资料片段。
