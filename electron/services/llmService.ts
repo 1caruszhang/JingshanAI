@@ -15,11 +15,12 @@ export interface LlmResponse {
 export async function chat(
   role: ModelRole,
   messages: LlmMessage[],
-  options?: { responseFormat?: ModelResponseFormat },
+  options?: { responseFormat?: ModelResponseFormat; tools?: unknown[] },
 ): Promise<LlmResponse> {
   const result = await executeText(role, {
     messages,
     responseFormat: options?.responseFormat,
+    tools: options?.tools,
   });
 
   return {

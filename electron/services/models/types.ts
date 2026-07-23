@@ -46,9 +46,20 @@ export type ModelRoute = {
 };
 
 // 统一输入：调用方不感知具体 provider
+//
+// role 扩展支持 'tool'（#63 接入 tool_call 循环）：模型发起 tool_call 后，工具
+// 执行结果以 role:'tool' 消息回灌。assistant 消息可携带 tool_calls（模型发起
+// 的工具调用），tool 消息需带 tool_call_id 对应到发起的 call。
+// 各 provider 适配在 modelRouter：DeepSeekMessage 原生支持 tool role/tool_calls/
+// tool_call_id；doubao 用宽松的 DoubaoResponseInputItem（Record<string, unknown>）
+// 透传 function_call_output。
 export type UnifiedChatMessage = {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  /** assistant 消息携带的 tool_calls（模型发起，OpenAI function-calling 格式）。 */
+  tool_calls?: unknown[];
+  /** tool 消息对应的 tool_call_id（回灌工具结果时必填）。 */
+  tool_call_id?: string;
 };
 
 export type UnifiedChatInput = {

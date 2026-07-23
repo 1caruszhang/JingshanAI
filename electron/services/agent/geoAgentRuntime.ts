@@ -447,6 +447,9 @@ async function runMigratedSkill(
       projectId: ctx.projectId ?? undefined,
       taskArgs,
       userMessage: userGoal,
+      // #63：tool_call 循环经 executeWithGuard 写 ledger（taskId/stepId）。
+      taskId: ctx.taskId,
+      stepId: skillStepId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
