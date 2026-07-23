@@ -38,10 +38,14 @@ function resolveBuiltinPromptsDir(): string {
 function readPromptRaw(name: string): string {
   const fileName = `${name}.md`;
 
-  // 1. userData 覆盖
-  const userDataPath = join(getUserDataPath(), fileName);
-  if (existsSync(userDataPath)) {
-    return readFileSync(userDataPath, 'utf8');
+  // 1. userData 覆盖（Electron app 未初始化时跳过，回退到内置默认）
+  try {
+    const userDataPath = join(getUserDataPath(), fileName);
+    if (existsSync(userDataPath)) {
+      return readFileSync(userDataPath, 'utf8');
+    }
+  } catch {
+    // 非 Electron 环境（如单元测试）下 getUserDataPath 会抛错，此处忽略
   }
 
   // 2. 内置默认
@@ -86,4 +90,38 @@ export function loadPrompt(name: string): string {
   }
 
   return raw;
+}
+
+/**
+ * 剥离 Markdown 顶部的 YAML frontmatter（`---\n...\n---` 块），返回正文。
+ * 仅当文件以 `---` 起始时剥离首个 frontmatter 块；否则原样返回。
+ * 正文中的 `---` 分隔线不受影响。
+ */
+export function stripFrontmatter(content: string): string {
+  if (!content.startsWith('---')) {
+    return content;
+  }
+  // 跳过开头的 `---` 行，找到下一个独占一行的 `---` 作为 frontmatter 结束
+  const afterOpen = content.slice(3);
+  const nlIdx = afterOpen.indexOf('\n');
+  if (nlIdx === -1) {
+    return content;
+  }
+  const rest = afterOpen.slice(nlIdx + 1);
+  const closeMatch = rest.match(/^---\s*(?:\r?\n|$)/m);
+  if (!closeMatch || closeMatch.index === undefined) {
+    return content;
+  }
+  return rest.slice(closeMatch.index + closeMatch[0].length);
+}
+
+/**
+ * 加载 prompt 并剥离 YAML frontmatter，只返回正文。
+ * 供 md-driven runtime 作 system prompt 注入（避免 frontmatter 进 system 段成为噪声）。
+ * 对无 frontmatter 的文件（如 soul.md）返回全文，与 `loadPrompt` 一致。
+ *
+ * @param name prompt 名（不含扩展名）
+ */
+export function loadPromptBody(name: string): string {
+  return stripFrontmatter(loadPrompt(name));
 }

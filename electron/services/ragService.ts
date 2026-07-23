@@ -227,7 +227,7 @@ export async function buildEvidencePack(
   };
 }
 
-function formatEvidence(evidence: EvidencePack): string {
+export function formatEvidence(evidence: EvidencePack): string {
   const factPart =
     evidence.facts.length > 0
       ? evidence.facts
