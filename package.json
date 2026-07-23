@@ -23,7 +23,8 @@
     "clean": "rm -rf dist dist-electron release",
     "lint": "tsc --noEmit",
     "validate:skills": "npx tsx electron/services/agent/validate-skills.ts",
-    "smoke:geo-skills": "npx tsx scripts/smoke-geo-skills.ts"
+    "smoke:geo-skills": "npx tsx scripts/smoke-geo-skills.ts",
+    "test:unit": "node --import tsx --test \"electron/**/*.test.ts\" \"skills/**/*.test.ts\""
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",

@@ -24,10 +24,39 @@ export function getRoute(role: ModelRole): ModelRoute {
 // 保留旧命名兼容
 export const modelRouter = getRoute;
 
+/**
+ * 把 UnifiedChatMessage 映射为 doubao Responses API input item。
+ *
+ * - system/user/assistant：message item。
+ * - tool：function_call_output item（role:'tool' 的回灌消息），doubao Responses
+ *   API 用 {type:'function_call_output', call_id, output} 形状。call_id 取自
+ *   tool_call_id，output 为 content 字符串。
+ * - assistant 携带 tool_calls：doubao 用 {type:'function_call', ...}，但当前
+ *   md-driven 路径仅在 DeepSeek provider 下走 tool_call 循环（ranking 路由），故
+ *   doubao 仅做 best-effort 透传（assistant tool_calls 走宽松 Record 透传）。
+ *   provider 差距见 types.ts UnifiedChatMessage 注释。
+ */
 function toDoubaoInputItem(m: UnifiedChatMessage): DoubaoResponseInputItem {
+  if (m.role === 'tool') {
+    return {
+      type: 'function_call_output',
+      call_id: m.tool_call_id,
+      output: m.content,
+    } as DoubaoResponseInputItem;
+  }
+  if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+    // best-effort：doubao Responses API 的 function_call item 由循环上下文决定，
+    // 这里把 tool_calls 透传到宽松的 Record 形状，由 doubao 客户端处理。
+    return {
+      type: 'message',
+      role: 'assistant',
+      content: [{type: 'output_text', text: m.content}],
+      tool_calls: m.tool_calls,
+    } as DoubaoResponseInputItem;
+  }
   return {
     type: 'message',
-    role: m.role,
+    role: m.role as 'user' | 'assistant' | 'system',
     content: [{type: 'input_text', text: m.content}],
   };
 }
@@ -96,6 +125,8 @@ export async function executeText(
     messages: input.messages.map((m) => ({
       role: m.role,
       content: m.content,
+      ...(m.tool_calls ? {tool_calls: m.tool_calls} : {}),
+      ...(m.tool_call_id ? {tool_call_id: m.tool_call_id} : {}),
     })),
     stream: false,
     tools: input.tools,
@@ -170,6 +201,8 @@ export async function* executeStream(
     messages: input.messages.map((m) => ({
       role: m.role,
       content: m.content,
+      ...(m.tool_calls ? {tool_calls: m.tool_calls} : {}),
+      ...(m.tool_call_id ? {tool_call_id: m.tool_call_id} : {}),
     })),
     stream: true,
     tools: input.tools,

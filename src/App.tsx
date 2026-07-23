@@ -3,6 +3,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import LayoutShell from './components/layout/LayoutShell';
 import DashboardView from './components/dashboard/DashboardView';
+import ContentDashboardView from './components/dashboard/ContentDashboardView';
 import ChatInterface from './components/chat/ChatInterface';
 import DraftsView from './components/drafts/DraftsView';
 import HumanReviewView from './components/drafts/HumanReviewView';
@@ -11,8 +12,6 @@ import AiWebBuilderView from './components/ai-web-builder/AiWebBuilderView';
 import ErrorBoundary from './components/ErrorBoundary';
 import KbIngestPanel from './components/knowledge-base/KbIngestPanel';
 import KbCreateView from './components/knowledge-base/KbCreateView';
-import FactReviewView from './components/facts/FactReviewView';
-import EnterpriseProfileView from './components/facts/EnterpriseProfileView';
 import ArticleGenerationView from './components/article-generation/ArticleGenerationView';
 import QuestionPoolView from './components/article-generation/QuestionPoolView';
 import SourceDiscoveryView from './components/article-generation/SourceDiscoveryView';
@@ -27,14 +26,13 @@ function KbIngestWrapper() {
 
 const viewComponents: Record<View, React.ComponentType> = {
   dashboard: DashboardView,
+  contentDashboard: ContentDashboardView,
   aiAgent: ChatInterface,
   drafts: DraftsView,
   autoLearning: AutoLearningView,
   aiWebBuilder: AiWebBuilderView,
   kbIngest: KbIngestWrapper,
   kbCreate: KbCreateView,
-  factReview: FactReviewView,
-  enterpriseProfile: EnterpriseProfileView,
   articleGeneration: ArticleGenerationView,
   humanReview: HumanReviewView,
   questionPool: QuestionPoolView,

@@ -57,6 +57,7 @@ import {
   RagAskSchema,
   ReflectionIdSchema,
   ReflectionListSchema,
+  SettingsUpdateSchema,
   ToolApprovalRespondSchema,
   VectorSearchSchema,
   VisibilityCheckSchema,
@@ -72,7 +73,7 @@ import {
   deleteProject,
   countProjectArtifacts,
 } from '../services/projectService.ts';
-import {askQuestion, buildEvidencePack} from '../services/ragService.ts';
+import {askQuestion} from '../services/ragService.ts';
 import {
   discoverSources,
   upsertSourceDecision,
@@ -80,7 +81,7 @@ import {
   clearSourceDecisions,
   removeSourceDecision,
 } from '../services/article/sourceDiscoveryService.ts';
-import {generateTitles} from '../../skills/title-generation/index.ts';
+import {runMdDrivenSkill} from '../services/agent/mdDrivenRunner.ts';
 import {runMinimalAgentTask} from '../services/agent/geoAgentRuntime.ts';
 import {extractFacts} from '../services/facts/factExtractionService.ts';
 import {runFactOntologySkill} from '../services/facts/factOntologySkill.ts';
@@ -105,12 +106,14 @@ import {
   updateArticleContent,
 } from '../services/article/articleRepository.ts';
 import {startRun, cancelRun, resolveToolApproval} from '../services/assistant/assistantRuntime.ts';
+import {getUserSettings, updateUserSettings} from '../services/settingsService.ts';
 import type {IpcChannels} from './channels.ts';
 import type {
   AgentArtifact,
   AgentTask,
   PublishRecord,
   SourceRecommendation,
+  TitleCandidate,
 } from '@/types/domain';
 
 let mainWindow: BrowserWindow | null = null;
@@ -755,12 +758,22 @@ export function registerIpcHandlers() {
     const validated = TitleGenerateSchema.parse({projectId, targetQuestion});
     const project = getProject(validated.projectId);
     if (!project) throw new Error(`Project ${validated.projectId} not found`);
-    const evidence = await buildEvidencePack(validated.projectId, validated.targetQuestion);
-    return generateTitles({
-      projectName: project.name,
-      targetQuestion: validated.targetQuestion,
-      evidencePack: evidence,
+    // #64: title IPC 迁移到 md-driven 框架。title-generation 无工具，
+    // runMdDrivenSkill 单次生成即正确。返回 {ok:true, data:{titles:[...]}}，
+    // 这里映射 data.titles → TitleCandidate[]（两者结构一致），保持 IPC 返回契约不变。
+    const result = await runMdDrivenSkill('title-generation', {
+      projectId: validated.projectId,
+      taskArgs: {
+        projectName: project.name,
+        targetQuestion: validated.targetQuestion,
+      },
+      userMessage: validated.targetQuestion,
     });
+    if (result.ok !== true) {
+      throw new Error(`标题生成失败：${result.errors.join('; ')}`);
+    }
+    const data = result.data as {titles: Array<{titleText: string; score: number; intent: string; notes?: string}>};
+    return data.titles as TitleCandidate[];
   });
 
   createHandler('article:generateRanking', async (params) => {
@@ -799,5 +812,15 @@ export function registerIpcHandlers() {
 
   createHandler('window:platform', () => {
     return process.platform;
+  });
+
+  // 用户设置（#37 登录信息进设置）
+  createHandler('settings:get', () => {
+    return getUserSettings();
+  });
+
+  createHandler('settings:set', (patch) => {
+    const validated = SettingsUpdateSchema.parse(patch);
+    return updateUserSettings(validated);
   });
 }

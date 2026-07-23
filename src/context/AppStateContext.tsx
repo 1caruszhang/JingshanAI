@@ -1,9 +1,11 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import {createContext, useContext, useEffect, useMemo, useState} from 'react';
 import type {
   AgentTask,
   ChatSession,
   Project,
+  UserSettings,
 } from '../types/domain';
+import {settingsService} from '../services/settingsService';
 
 interface AppStateContextValue {
   currentProject: Project | null;
@@ -14,6 +16,8 @@ interface AppStateContextValue {
   setCurrentChatSession: (session: ChatSession | null) => void;
   refreshProjects: number;
   triggerRefreshProjects: () => void;
+  currentUser: UserSettings | null;
+  refreshCurrentUser: () => Promise<void>;
 }
 
 const AppStateContext = createContext<AppStateContextValue | null>(null);
@@ -24,6 +28,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [currentChatSession, setCurrentChatSession] =
     useState<ChatSession | null>(null);
   const [refreshProjects, setRefreshProjects] = useState(0);
+  const [currentUser, setCurrentUser] = useState<UserSettings | null>(null);
+
+  const refreshCurrentUser = async () => {
+    try {
+      const settings = await settingsService.get();
+      setCurrentUser(settings);
+    } catch (err) {
+      console.error('[AppState] load user settings failed:', err);
+    }
+  };
+
+  useEffect(() => {
+    refreshCurrentUser();
+  }, []);
 
   const value = useMemo<AppStateContextValue>(
     () => ({
@@ -35,8 +53,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setCurrentChatSession,
       refreshProjects,
       triggerRefreshProjects: () => setRefreshProjects((v) => v + 1),
+      currentUser,
+      refreshCurrentUser,
     }),
-    [currentProject, currentAgentTask, currentChatSession, refreshProjects],
+    [currentProject, currentAgentTask, currentChatSession, refreshProjects, currentUser],
   );
 
   return (

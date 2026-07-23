@@ -3,6 +3,7 @@ import {searchSimilarChunks} from './vectorStore.ts';
 import {chat} from './llmService.ts';
 import {getDb} from '../db/connection.ts';
 import {getMissingFieldsAndWarnings} from './facts/pendingFactReviewService.ts';
+import {loadPrompt} from '../prompts/loader.ts';
 
 export interface RagSource {
   chunkId: number;
@@ -45,14 +46,6 @@ export interface RagAnswer {
   evidence: EvidencePack;
   model: string;
 }
-
-const RAG_SYSTEM_PROMPT = `你是企业 GEO 优化助手。请基于下面提供的「企业事实」与「参考资料」回答用户问题。
-
-要求：
-1. 只使用提供的信息，不要编造。
-2. 如果信息不足以回答问题，请明确说明。
-3. 回答时请引用来源，企业事实使用 [^F1^]、[^F2^]，参考资料使用 [^1^]、[^2^] 这样的格式标注。
-4. 保持回答简洁、专业。`;
 
 function tokenize(text: string): string[] {
   return text
@@ -234,7 +227,7 @@ export async function buildEvidencePack(
   };
 }
 
-function formatEvidence(evidence: EvidencePack): string {
+export function formatEvidence(evidence: EvidencePack): string {
   const factPart =
     evidence.facts.length > 0
       ? evidence.facts
@@ -281,7 +274,7 @@ export async function askQuestion(
   const userPrompt = `问题：${query}\n\n${context}\n\n请根据以上信息回答问题。`;
 
   const response = await chat('chat', [
-    {role: 'system', content: RAG_SYSTEM_PROMPT},
+    {role: 'system', content: loadPrompt('qa')},
     {role: 'user', content: userPrompt},
   ]);
 

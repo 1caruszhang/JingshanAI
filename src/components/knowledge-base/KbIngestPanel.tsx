@@ -1,20 +1,32 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
 import { knowledgeBaseService } from '@/services/knowledgeBaseService';
 import { projectService } from '@/services/projectService';
-import { dialogApi } from '@/lib/electron-api';
+import { factService } from '@/services/factService';
+import { dialogApi, factApi, dbApi } from '@/lib/electron-api';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppState } from '@/context/AppStateContext';
+import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import type { Project, KnowledgeEntry, KnowledgeEntryStatus } from '@/types/domain';
-import { Trash2, FileText, RefreshCw, Pencil, Check, X } from 'lucide-react';
+import type { Project, KnowledgeEntry, KnowledgeEntryStatus, EnterpriseFact, FactStatus } from '@/types/domain';
+import {
+  FACT_TYPES,
+  FACT_TYPE_LABELS,
+  HIGH_RISK_FACT_TYPES,
+  REQUIRED_FACT_TYPES_FOR_ARTICLE,
+} from '@/types/domain';
+import { getFactTypeLabel } from '../../../electron/services/facts/factTypes';
+import FactCard from '@/components/facts/FactCard';
+import FactSourcePreview from '@/components/facts/FactSourcePreview';
+import { Trash2, FileText, RefreshCw, Pencil, Check, X, AlertTriangle, Building2, Database, Upload } from 'lucide-react';
 
 interface KbIngestPanelProps {
   projectId: number;
@@ -29,29 +41,58 @@ const statusBadgeMap: Record<
   failed: { label: '失败', variant: 'destructive' },
 };
 
+const FACT_STATUS_OPTIONS: FactStatus[] = ['candidate', 'confirmed', 'rejected', 'deprecated'];
+
+type TabValue = 'profile' | 'entries' | 'facts';
+
+function factStatusLabel(t: Record<string, string>, status: FactStatus): string {
+  const map: Record<FactStatus, string> = {
+    candidate: t.factReviewPending as string,
+    confirmed: t.factReviewConfirmed as string,
+    rejected: t.factReviewRejected as string,
+    deprecated: t.factReviewDeprecated as string,
+  };
+  return map[status] ?? status;
+}
+
 export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
   const { cls, t } = useTheme();
   const { setCurrentProject } = useAppState();
   const [project, setProject] = useState<Project | null>(null);
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
+  const [facts, setFacts] = useState<EnterpriseFact[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'text' | 'file'>('text');
+
+  // Ingest form state
+  const [activeIngestTab, setActiveIngestTab] = useState<'text' | 'file'>('text');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [filePath, setFilePath] = useState('');
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<'idle' | 'ingesting' | 'success' | 'error'>('idle');
+
+  // Domain editing
   const [editingDomain, setEditingDomain] = useState(false);
   const [pendingDomain, setPendingDomain] = useState<'local_service' | 'saas' | 'ecommerce' | ''>('');
+
+  // Enterprise profile form (ontology extraction)
+  const [profileValues, setProfileValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(FACT_TYPES.map((ft) => [ft, '']))
+  );
+  const [extracting, setExtracting] = useState(false);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [riskWarnings, setRiskWarnings] = useState<string[]>([]);
+
+  // Fact review state
+  const [activeTab, setActiveTab] = useState<TabValue>('profile');
+  const [factStatusFilter, setFactStatusFilter] = useState<FactStatus | 'all'>('candidate');
+  const [selectedFact, setSelectedFact] = useState<EnterpriseFact | null>(null);
+  const [sourceChunkText, setSourceChunkText] = useState<string | null>(null);
 
   const canSubmitText = title.trim() && content.trim() && status !== 'ingesting';
   const canSubmitFile = title.trim() && filePath && status !== 'ingesting';
 
-  useEffect(() => {
-    loadData();
-  }, [projectId]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [projectData, entriesData] = await Promise.all([
@@ -64,10 +105,48 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
         setCurrentProject(projectData);
         setPendingDomain((projectData.domain ?? '') as typeof pendingDomain);
       }
+      // Facts + health
+      try {
+        const factResult = await factApi.list({ projectId, limit: 200 });
+        setFacts(factResult.facts);
+      } catch {
+        setFacts([]);
+      }
+      try {
+        const health = await factApi.missingFields(projectId);
+        setMissingFields(health.missing);
+        setRiskWarnings(health.riskWarnings);
+      } catch {
+        setMissingFields([]);
+        setRiskWarnings([]);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [projectId, setCurrentProject]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Fetch source chunk when selecting a fact
+  useEffect(() => {
+    async function fetchChunk() {
+      if (!selectedFact?.source_chunk_id) {
+        setSourceChunkText(null);
+        return;
+      }
+      try {
+        const rows = (await dbApi.query('SELECT chunk_text FROM knowledge_chunks WHERE id = ?', [
+          selectedFact.source_chunk_id,
+        ])) as Array<{ chunk_text: string }>;
+        setSourceChunkText(rows[0]?.chunk_text ?? null);
+      } catch {
+        setSourceChunkText(null);
+      }
+    }
+    fetchChunk();
+  }, [selectedFact]);
 
   const handleTextSubmit = async () => {
     if (!canSubmitText) return;
@@ -128,8 +207,8 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
 
   const handleSaveDomain = async () => {
     if (!project) return;
-    await projectService.update(project.id, {domain: pendingDomain || null});
-    setProject((prev) => prev ? {...prev, domain: pendingDomain || null} : prev);
+    await projectService.update(project.id, { domain: pendingDomain || null });
+    setProject((prev) => (prev ? { ...prev, domain: pendingDomain || null } : prev));
     setEditingDomain(false);
   };
 
@@ -137,6 +216,71 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
     setPendingDomain((project?.domain ?? '') as typeof pendingDomain);
     setEditingDomain(false);
   };
+
+  const handleProfileFieldChange = (field: string, value: string) => {
+    setProfileValues((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleProfileSubmit = async () => {
+    const formInputs: Record<string, string> = {};
+    for (const ft of FACT_TYPES) {
+      const val = profileValues[ft]?.trim();
+      if (val) formInputs[ft] = val;
+    }
+    setExtracting(true);
+    try {
+      const result = await factApi.extract({ projectId, mode: 'ontology', formInputs });
+      if (result.warnings && result.warnings.length > 0) {
+        toast.error(
+          (t.enterpriseProfileWarnings ?? '部分字段存在风险提示') + ': ' + result.warnings.join('；')
+        );
+      }
+      await loadData();
+      setActiveTab('facts');
+    } catch (err) {
+      toast.error(
+        t.enterpriseProfileSubmitError ?? '提交失败',
+        err instanceof Error ? err.message : undefined
+      );
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleExtractAuto = async () => {
+    setExtracting(true);
+    try {
+      await factApi.extract({ projectId });
+      await loadData();
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleConfirmFact = async (fact: EnterpriseFact) => {
+    await factApi.confirm({ factIds: [fact.id] });
+    await loadData();
+  };
+
+  const handleRejectFact = async (fact: EnterpriseFact) => {
+    await factApi.reject({ factIds: [fact.id] });
+    await loadData();
+  };
+
+  const handleModifyFact = async (fact: EnterpriseFact, newValue: string) => {
+    await factApi.modifyAndConfirm({ factId: fact.id, newFactValue: newValue });
+    await loadData();
+  };
+
+  // KB health summary
+  const indexedCount = entries.filter((e) => e.status === 'indexed').length;
+  const pendingCount = entries.filter((e) => e.status === 'pending').length;
+  const health = entries.length === 0 ? 0 : Math.round((indexedCount / entries.length) * 100);
+  const healthColor = health >= 80 ? 'text-emerald-500' : health >= 50 ? 'text-amber-500' : 'text-rose-500';
+
+  const filteredFacts = factStatusFilter === 'all'
+    ? facts
+    : facts.filter((f) => f.status === factStatusFilter);
 
   if (loading) {
     return (
@@ -154,7 +298,7 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
       {/* Project Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">{project?.name ?? '知识库'}</h1>
+          <h1 className="text-2xl font-bold">{project?.name ?? t.knowledgeBaseTitle}</h1>
           {project?.description && (
             <p className={cn('text-sm mt-1', cls('text-gray-500', 'text-zinc-400'))}>
               {project.description}
@@ -204,116 +348,299 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Ingest Panel */}
-        <Card className={cn('p-5', cls('bg-white', 'bg-[#1c1c1f]'))}>
-          <h2 className="text-lg font-bold mb-4">{t.ingestTitle}</h2>
-          <div className="mb-4">
-            <label className="text-sm font-medium mb-1.5 block">{t.entryTitle}</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t.entryTitle}
-            />
+      {/* KB Health Summary (always-on) */}
+      <Card className={cn('p-5', cls('bg-white', 'bg-[#1c1c1f]'))}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold flex items-center gap-2">
+            <Database className="w-4 h-4 text-primary" />
+            {t.kbHealthTitle ?? '知识库健康度'}
+          </h3>
+          <div className="flex items-center gap-4 text-xs">
+            <span className={cn('font-bold', healthColor)}>{health}</span>
+            <span className={cls('text-gray-500', 'text-zinc-400')}>
+              {indexedCount} {t.kbHealthIndexed ?? '已索引'} / {pendingCount} {t.kbHealthPending ?? '待处理'}
+            </span>
+            <span className={cls('text-gray-400', 'text-zinc-500')}>
+              {facts.length} {t.kbFactCountSuffix ?? '条事实'}
+            </span>
           </div>
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'text' | 'file')}>
-            <TabsList className="mb-4">
-              <TabsTrigger value="text">{t.ingestTextTab}</TabsTrigger>
-              <TabsTrigger value="file">{t.ingestFileTab}</TabsTrigger>
-            </TabsList>
-            <TabsContent value="text" className="space-y-4">
-              <Textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder={t.ingestTextPlaceholder}
-                rows={8}
-              />
-              <Button onClick={handleTextSubmit} disabled={!canSubmitText} className="w-full">
-                {status === 'ingesting' ? t.ingestProgress : t.ingestSubmit}
-              </Button>
-            </TabsContent>
-            <TabsContent value="file" className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Input
-                  value={filePath}
-                  readOnly
-                  placeholder={t.ingestFileSelect}
-                  className="flex-1"
-                />
-                <Button type="button" variant="outline" onClick={handleFileSelect}>
-                  {t.ingestFileSelect}
-                </Button>
-              </div>
-              <p className={cn('text-xs', cls('text-gray-500', 'text-zinc-400'))}>
-                {t.ingestFileTypes}
-              </p>
-              <Button onClick={handleFileSubmit} disabled={!canSubmitFile} className="w-full">
-                {status === 'ingesting' ? t.ingestProgress : t.ingestSubmit}
-              </Button>
-            </TabsContent>
-          </Tabs>
-          {status === 'ingesting' && <Progress value={progress} className="mt-4" />}
-          {status === 'success' && (
-            <p className="mt-4 text-sm text-emerald-500">{t.ingestSuccess}</p>
-          )}
-          {status === 'error' && (
-            <p className="mt-4 text-sm text-red-500">{t.ingestError}</p>
-          )}
-        </Card>
+        </div>
+        <div className="h-2 rounded-full bg-gray-100 dark:bg-zinc-800 overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full transition-all',
+              health >= 80 ? 'bg-emerald-500' : health >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+            )}
+            style={{ width: `${health}%` }}
+          />
+        </div>
+      </Card>
 
-        {/* Entries List */}
-        <Card className={cn('p-5', cls('bg-white', 'bg-[#1c1c1f]'))}>
-          <h2 className="text-lg font-bold mb-4">{t.entriesTitle} ({entries.length})</h2>
-          <div className="space-y-2 max-h-[500px] overflow-y-auto">
-            {entries.length === 0 ? (
-              <div className="text-center py-8">
-                <FileText className={cn('w-12 h-12 mx-auto mb-3', cls('text-gray-300', 'text-zinc-600'))} />
-                <p className={cn('text-sm', cls('text-gray-500', 'text-zinc-400'))}>
-                  暂无资料，请在左侧录入
-                </p>
-              </div>
-            ) : (
-              entries.map((entry) => {
-                const statusInfo = statusBadgeMap[entry.status] ?? {
-                  label: entry.status,
-                  variant: 'secondary',
-                };
+      {/* Tabs: 资料录入 / 知识条目 / 事实审核 */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
+        <TabsList>
+          <TabsTrigger value="profile">{t.enterpriseProfile ?? '企业资料'}</TabsTrigger>
+          <TabsTrigger value="entries">{t.entriesTitle}</TabsTrigger>
+          <TabsTrigger value="facts">{t.factReview ?? '事实审核'}</TabsTrigger>
+        </TabsList>
+
+        {/* Tab 1: 资料录入 (企业资料补抽 + 文本/文件录入) */}
+        <TabsContent value="profile" className="space-y-6">
+          {/* Enterprise profile form (ontology extraction) */}
+          <Card className={cn('p-5', cls('bg-white', 'bg-[#1c1c1f]'))}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-primary" />
+                {t.enterpriseProfileFields ?? '企业信息字段'}
+              </h3>
+              <Button variant="outline" size="sm" onClick={handleExtractAuto} disabled={extracting}>
+                {extracting ? <Spinner className="w-4 h-4" /> : null}
+                {t.factReviewExtract ?? '抽取事实'}
+              </Button>
+            </div>
+            <p className={cn('text-xs mb-4', cls('text-gray-400', 'text-zinc-500'))}>
+              {t.enterpriseProfileFieldsHint ?? '带 * 为推荐填写字段；带 ⚠ 的高风险字段，AI 补全时请仔细核实。'}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {FACT_TYPES.map((ft) => {
+                const isRequired = (REQUIRED_FACT_TYPES_FOR_ARTICLE as string[]).includes(ft);
+                const isHighRisk = HIGH_RISK_FACT_TYPES.has(ft);
+                const label = FACT_TYPE_LABELS[ft];
                 return (
-                  <div
-                    key={entry.id}
-                    className={cn(
-                      'p-3 rounded-lg border flex items-start justify-between',
-                      cls('bg-gray-50 border-gray-100', 'bg-zinc-800/50 border-zinc-700/50'),
-                    )}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-sm truncate">{entry.title}</h3>
-                        <Badge variant={statusInfo.variant} className="text-xs">
-                          {statusInfo.label}
+                  <div key={ft} className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <label className={cn('text-sm font-medium', cls('text-gray-700', 'text-zinc-300'))}>
+                        {label}
+                        {isRequired && <span className="text-red-500 ml-0.5">*</span>}
+                      </label>
+                      {isHighRisk && (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'text-[10px] py-0 px-1.5 h-5 gap-1 border-amber-400/50',
+                            cls('text-amber-600 bg-amber-50', 'text-amber-400 bg-amber-950/20')
+                          )}
+                        >
+                          <AlertTriangle className="w-2.5 h-2.5" />
+                          {t.enterpriseProfileHighRisk ?? 'AI 补全时请仔细核实'}
                         </Badge>
-                      </div>
-                      <p className={cn('text-xs', cls('text-gray-500', 'text-zinc-400'))}>
-                        {entry.source_type === 'text' ? '文本' : `文件: ${entry.source_file_path?.split('/').pop()}`}
-                        {' · '}
-                        {entry.created_at}
-                      </p>
+                      )}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteEntry(entry)}
-                      className="shrink-0"
-                    >
-                      <Trash2 className="w-4 h-4 text-red-500" />
-                    </Button>
+                    <Input
+                      value={profileValues[ft] ?? ''}
+                      onChange={(e) => handleProfileFieldChange(ft, e.target.value)}
+                      placeholder={`请输入${label}...`}
+                      disabled={extracting}
+                    />
                   </div>
                 );
-              })
+              })}
+            </div>
+            <div className="flex justify-end mt-4">
+              <Button onClick={handleProfileSubmit} disabled={extracting} className="min-w-[120px]">
+                {extracting ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner className="w-4 h-4" />
+                    {t.enterpriseProfileSubmitting ?? '提交中…'}
+                  </span>
+                ) : (
+                  t.enterpriseProfileSubmit ?? '提交并抽取事实'
+                )}
+              </Button>
+            </div>
+          </Card>
+
+          {/* Ingest (text/file) */}
+          <Card className={cn('p-5', cls('bg-white', 'bg-[#1c1c1f]'))}>
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <Upload className="w-4 h-4 text-primary" />
+              {t.ingestTitle}
+            </h3>
+            <div className="mb-4">
+              <label className="text-sm font-medium mb-1.5 block">{t.entryTitle}</label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t.entryTitle} />
+            </div>
+            <Tabs value={activeIngestTab} onValueChange={(v) => setActiveIngestTab(v as 'text' | 'file')}>
+              <TabsList className="mb-4">
+                <TabsTrigger value="text">{t.ingestTextTab}</TabsTrigger>
+                <TabsTrigger value="file">{t.ingestFileTab}</TabsTrigger>
+              </TabsList>
+              <TabsContent value="text" className="space-y-4">
+                <Textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder={t.ingestTextPlaceholder}
+                  rows={6}
+                />
+                <Button onClick={handleTextSubmit} disabled={!canSubmitText} className="w-full">
+                  {status === 'ingesting' ? t.ingestProgress : t.ingestSubmit}
+                </Button>
+              </TabsContent>
+              <TabsContent value="file" className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Input value={filePath} readOnly placeholder={t.ingestFileSelect} className="flex-1" />
+                  <Button type="button" variant="outline" onClick={handleFileSelect}>
+                    {t.ingestFileSelect}
+                  </Button>
+                </div>
+                <p className={cn('text-xs', cls('text-gray-500', 'text-zinc-400'))}>{t.ingestFileTypes}</p>
+                <Button onClick={handleFileSubmit} disabled={!canSubmitFile} className="w-full">
+                  {status === 'ingesting' ? t.ingestProgress : t.ingestSubmit}
+                </Button>
+              </TabsContent>
+            </Tabs>
+            {status === 'ingesting' && <Progress value={progress} className="mt-4" />}
+            {status === 'success' && <p className="mt-4 text-sm text-emerald-500">{t.ingestSuccess}</p>}
+            {status === 'error' && <p className="mt-4 text-sm text-red-500">{t.ingestError}</p>}
+          </Card>
+        </TabsContent>
+
+        {/* Tab 2: 知识条目 */}
+        <TabsContent value="entries">
+          <Card className={cn('p-5', cls('bg-white', 'bg-[#1c1c1f]'))}>
+            <h2 className="text-lg font-bold mb-4">{t.entriesTitle} ({entries.length})</h2>
+            <div className="space-y-2 max-h-[600px] overflow-y-auto">
+              {entries.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className={cn('w-12 h-12 mx-auto mb-3', cls('text-gray-300', 'text-zinc-600'))} />
+                  <p className={cn('text-sm', cls('text-gray-500', 'text-zinc-400'))}>
+                    {(t.kbNoEntriesHint ?? '暂无资料，请在「{tab}」中录入').replace('{tab}', t.enterpriseProfile ?? '企业资料')}
+                  </p>
+                </div>
+              ) : (
+                entries.map((entry) => {
+                  const statusInfo = statusBadgeMap[entry.status] ?? { label: entry.status, variant: 'secondary' as const };
+                  return (
+                    <div
+                      key={entry.id}
+                      className={cn(
+                        'p-3 rounded-lg border flex items-start justify-between',
+                        cls('bg-gray-50 border-gray-100', 'bg-zinc-800/50 border-zinc-700/50'),
+                      )}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-medium text-sm truncate">{entry.title}</h3>
+                          <Badge variant={statusInfo.variant} className="text-xs">
+                            {statusInfo.label}
+                          </Badge>
+                        </div>
+                        <p className={cn('text-xs', cls('text-gray-500', 'text-zinc-400'))}>
+                          {entry.source_type === 'text' ? '文本' : `文件: ${entry.source_file_path?.split('/').pop()}`}
+                          {' · '}
+                          {entry.created_at}
+                        </p>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteEntry(entry)} className="shrink-0">
+                        <Trash2 className="w-4 h-4 text-red-500" />
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* Tab 3: 事实审核 */}
+        <TabsContent value="facts">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <Tabs value={factStatusFilter} onValueChange={(v) => setFactStatusFilter(v as FactStatus | 'all')}>
+                <TabsList className="flex-wrap">
+                  <TabsTrigger value="all">{t.factReviewAll}</TabsTrigger>
+                  {FACT_STATUS_OPTIONS.map((s) => (
+                    <TabsTrigger key={s} value={s}>{factStatusLabel(t, s)}</TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+              <Button variant="outline" size="sm" onClick={handleExtractAuto} disabled={extracting}>
+                {extracting ? t.factReviewExtracting : t.factReviewExtract}
+              </Button>
+            </div>
+
+            {missingFields.length > 0 || riskWarnings.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card className={cn('p-4', cls('bg-white', 'bg-[#1c1c1f]'))}>
+                  <CardHeader className="pb-2 p-0">
+                    <CardTitle className="text-sm font-semibold">{t.factReviewMissingFields}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0 pt-2">
+                    {missingFields.length === 0 ? (
+                      <p className={cn('text-sm', cls('text-gray-500', 'text-zinc-400'))}>无</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {missingFields.map((f) => (
+                          <Badge key={f} variant="outline">{getFactTypeLabel(f)}</Badge>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card className={cn('p-4', cls('bg-white', 'bg-[#1c1c1f]'))}>
+                  <CardHeader className="pb-2 p-0">
+                    <CardTitle className="text-sm font-semibold">{t.factReviewRiskWarnings}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0 pt-2">
+                    {riskWarnings.length === 0 ? (
+                      <p className={cn('text-sm', cls('text-gray-500', 'text-zinc-400'))}>无</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {riskWarnings.map((w, i) => (
+                          <li key={i} className={cn('text-sm', cls('text-amber-600', 'text-amber-400'))}>{w}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
+
+            {extracting ? (
+              <div className="flex justify-center py-12">
+                <Spinner />
+              </div>
+            ) : filteredFacts.length === 0 ? (
+              <div className={cn('text-center py-16', cls('text-gray-500', 'text-zinc-400'))}>
+                <p className="text-lg font-medium">{t.factReviewEmpty}</p>
+                <p className="text-sm mt-1">{t.factReviewEmptyDesc}</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
+                <div className="space-y-3">
+                  {filteredFacts.map((fact) => (
+                    <FactCard
+                      key={fact.id}
+                      fact={fact}
+                      typeLabel={getFactTypeLabel(fact.fact_type)}
+                      selected={selectedFact?.id === fact.id}
+                      onSelect={() => setSelectedFact(fact)}
+                      onConfirm={() => handleConfirmFact(fact)}
+                      onReject={() => handleRejectFact(fact)}
+                      onModify={(value) => handleModifyFact(fact, value)}
+                    />
+                  ))}
+                </div>
+                <div>
+                  {selectedFact ? (
+                    <FactSourcePreview
+                      fact={selectedFact}
+                      chunkText={sourceChunkText}
+                      typeLabel={getFactTypeLabel(selectedFact.fact_type)}
+                    />
+                  ) : (
+                    <Card className={cn('p-6 text-center', cls('bg-white', 'bg-[#1c1c1f]'))}>
+                      <p className={cn('text-sm', cls('text-gray-500', 'text-zinc-400'))}>
+                        {t.kbSelectFactHint ?? '选择左侧事实查看来源片段'}
+                      </p>
+                    </Card>
+                  )}
+                </div>
+              </div>
             )}
           </div>
-        </Card>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

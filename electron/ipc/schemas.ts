@@ -301,3 +301,8 @@ export const ArticleGenerateRankingSchema = z.object({
   competitors: z.array(z.string()),
   targetQuestion: z.string().min(1),
 });
+
+// 用户设置（#37 登录信息进设置）
+export const SettingsUpdateSchema = z.object({
+  userName: z.string().optional(),
+});

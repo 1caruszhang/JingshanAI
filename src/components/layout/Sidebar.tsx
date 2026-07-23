@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings, FileText, BookOpen, Globe, LogOut, ChevronRight, Plus, ChevronDown, X, PanelLeftClose, Trash2, Building2, ClipboardCheck, HelpCircle, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Settings, FileText, BookOpen, Globe, ChevronRight, Plus, ChevronDown, X, PanelLeftClose, Trash2, HelpCircle, Sparkles, Database } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/lib/toast';
@@ -21,17 +21,12 @@ interface SidebarProps {
   onCloseMobile: () => void;
 }
 
-const mainMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'dashboard' | 'aiAgent' | 'drafts' | 'autoLearning' | 'aiWebBuilder' }[] = [
+const mainMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'dashboard' | 'contentDashboard' | 'aiAgent' | 'autoLearning' | 'aiWebBuilder' }[] = [
   { id: 'dashboard', icon: LayoutDashboard, labelKey: 'dashboard' },
+  { id: 'contentDashboard', icon: Database, labelKey: 'contentDashboard' },
   { id: 'aiAgent', icon: Settings, labelKey: 'aiAgent' },
-  { id: 'drafts', icon: FileText, labelKey: 'drafts' },
   { id: 'autoLearning', icon: BookOpen, labelKey: 'autoLearning' },
   { id: 'aiWebBuilder', icon: Globe, labelKey: 'aiWebBuilder' },
-];
-
-const factsMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'enterpriseProfile' | 'factReview' }[] = [
-  { id: 'enterpriseProfile', icon: Building2, labelKey: 'enterpriseProfile' },
-  { id: 'factReview', icon: ClipboardCheck, labelKey: 'factReview' },
 ];
 
 const contentMenu: { id: View; icon: React.ComponentType<{ className?: string }>; labelKey: 'questionPool' | 'sourceDiscovery' | 'articleGeneration' | 'drafts' }[] = [
@@ -226,43 +221,6 @@ export default function Sidebar({ activeView, onNavigate, collapsed, onToggleCol
             </nav>
           </div>
 
-          {/* Facts menu */}
-          <div className="shrink-0">
-            <h3
-              className={cn(
-                'text-[12px] font-medium mb-4 px-4 transition-colors duration-300 text-gray-500',
-                collapsed ? 'xl:hidden' : ''
-              )}
-            >
-              {t.enterpriseFactsSection}
-            </h3>
-            <nav className="flex flex-col gap-1">
-              {factsMenu.map(({ id, icon: Icon, labelKey }) => (
-                <button
-                  key={id}
-                  onClick={() => handleNavigate(id)}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 w-full rounded-2xl font-bold text-[14px] transition-colors',
-                    activeView === id
-                      ? cls(
-                          'bg-white shadow-xs border border-gray-200/50 text-gray-900',
-                          'bg-[#1c1c1f] border border-white/5 text-white'
-                        )
-                      : cls(
-                          'border border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50',
-                          'border border-transparent text-gray-400 hover:text-white hover:bg-white/5'
-                        )
-                  )}
-                >
-                  <Icon className="w-[18px] h-[18px] shrink-0" />
-                  <span className={cn('truncate text-left flex-1', collapsed ? 'xl:hidden' : 'block')}>
-                    {t[labelKey]}
-                  </span>
-                </button>
-              ))}
-            </nav>
-          </div>
-
           {/* Content production menu */}
           <div className="shrink-0">
             <h3
@@ -324,7 +282,7 @@ export default function Sidebar({ activeView, onNavigate, collapsed, onToggleCol
                     isTeamsExpanded ? '' : '-rotate-90'
                   )}
                 />
-                <span className="text-[13px] font-extrabold tracking-tight">{t.teams}</span>
+                <span className="text-[13px] font-extrabold tracking-tight">{t.knowledgeBaseTitle}</span>
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); handleAddProject(); }}
@@ -411,15 +369,6 @@ export default function Sidebar({ activeView, onNavigate, collapsed, onToggleCol
           >
             <Settings className="w-[18px] h-[18px]" />
             <span className={cn(collapsed ? 'xl:hidden' : 'block')}>{t.settings}</span>
-          </button>
-          <button
-            className={cn(
-              'flex items-center gap-3 px-3 py-2.5 w-full rounded-2xl font-bold text-[14px] transition-colors',
-              cls('text-gray-500 hover:bg-gray-50', 'text-gray-400 hover:bg-white/5')
-            )}
-          >
-            <LogOut className="w-[18px] h-[18px]" />
-            <span className={cn(collapsed ? 'xl:hidden' : 'block')}>{t.logOut}</span>
           </button>
         </div>
       </aside>

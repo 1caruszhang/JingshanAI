@@ -24,6 +24,15 @@ export const draftService = {
     ) as Promise<AgentArtifact[]>;
   },
 
+  async getAll(): Promise<AgentArtifact[]> {
+    return dbApi.query(
+      `SELECT id, task_id, project_id, artifact_type, title, content,
+              metadata_json, status, created_at, updated_at
+       FROM agent_artifacts
+       ORDER BY created_at DESC`,
+    ) as Promise<AgentArtifact[]>;
+  },
+
   async getById(id: number): Promise<AgentArtifact | undefined> {
     const rows = (await dbApi.query(
       `SELECT id, task_id, project_id, artifact_type, title, content,

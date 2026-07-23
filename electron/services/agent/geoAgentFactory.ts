@@ -8,6 +8,7 @@ import {askQuestion} from '../ragService.ts';
 import {embedText} from '../embedding.ts';
 import {getDb} from '../../db/connection.ts';
 import {buildSystemPrompt, getFactTypesForDomain} from './geoAgentSystemPrompt.ts';
+import {loadPrompt} from '../../prompts/loader.ts';
 import {executeWithGuard, type GuardedToolCallOptions} from './toolGuard.ts';
 import {generateQuestions} from '../article/questionPoolService.ts';
 import {discoverSources} from '../article/sourceDiscoveryService.ts';
@@ -141,10 +142,16 @@ async function runGuarded<T>(
 //
 // Each executor is the body that used to live inline inside the LangChain
 // `tool(...)` wrappers below. They are extracted here so that BOTH the
-// `createGeoAgent` tool registration path AND the new Agent-first Runtime
+// `createGeoAgent` tool registration path AND the Agent-first Runtime
 // (geoAgentRuntime.ts) invoke the exact same implementation under the
-// toolGuard policy. A runtime that routes to a skill name can look the
-// executor up in `SKILL_EXECUTORS` instead of re-implementing the call.
+// toolGuard policy.
+//
+// After the #62 cutover the runtime dispatches service-kind intents via the
+// `SERVICE_EXECUTORS` map keyed by the dotted intent id (e.g.
+// `question.generate`, `fact.extract`). The pause intent `publish.plan` is NOT
+// in this map — its pause path lives in the runtime. The LangChain `tool(...)`
+// wrappers in `createGeoAgent` call these same executor functions directly so
+// behaviour is identical regardless of entry point.
 //
 // Every executor returns a JSON string (the same contract the LangChain tools
 // used) so callers don't have to care which path produced the result.
@@ -273,36 +280,22 @@ async function executeGeoReview(
 }
 
 /**
- * `publish.plan` is the contractually high-risk skill (T8). There is no
- * backing service yet, so the executor is a no-op that returns a pause
- * marker. The toolGuard still writes a `tool_approvals` row and transitions
- * the owning task to `waiting_approval` before this body runs, so the runtime
- * observes `{status:'waiting_approval'}` and pauses — which is exactly the
- * acceptance criterion "publish.plan 被触发时，runtime 暂停并推审批卡片".
- */
-async function executePublishPlan(
-  _args: SkillExecutorArgs,
-  _ctx: AgentToolContext,
-): Promise<string> {
-  return JSON.stringify({status: 'waiting_for_approval', message: '发布计划已生成，等待用户审批'});
-}
-
-/**
- * Registry of dotted skill identifiers → executor. Used by:
- *   - the Agent-first Runtime (geoAgentRuntime.ts) after intentRouter picks a skill
- *   - future callers that want to invoke a skill directly
+ * Service-intent dispatch map: dotted intent id → executor. Used by the
+ * runtime's kind='service' branch (post-#62 cutover) to look up the executor
+ * for a service-kind route result by its intent id.
  *
- * The LangChain `tool(...)` wrappers in `createGeoAgent` below call these same
- * functions so behaviour is identical regardless of entry point.
+ * Only service-kind intents are listed here. The pause intent `publish.plan`
+ * is deliberately absent — its pause path lives in the runtime
+ * (`handlePublishPlanPause`), not as an executor. md-driven intents go through
+ * `runMdDrivenSkill` instead.
  */
-export const SKILL_EXECUTORS: Record<string, SkillExecutor> = {
+export const SERVICE_EXECUTORS: Record<string, SkillExecutor> = {
   'question.generate': executeQuestionGenerate,
   'source.discover': executeSourceDiscover,
   'article.generate': executeArticleGenerate,
   'fact.extract': executeFactExtract,
   'claim.review': executeClaimReview,
   'geo.review': executeGeoReview,
-  'publish.plan': executePublishPlan,
 };
 
 // ── Factory ─────────────────────────────────────────────────────────────────
@@ -322,8 +315,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
       const response = await model.invoke([
         {
           role: 'system',
-          content:
-            '你是 GEO Agent。当前未选择项目。请基于通用知识回答用户问题，不要引用具体企业知识库。回答简洁专业。',
+          content: `${loadPrompt('soul')}\n\n${loadPrompt('qa')}`,
         },
         {role: 'user', content: input.query},
       ]);

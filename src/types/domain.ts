@@ -1,14 +1,13 @@
 // 视图路由
 export type View =
   | 'dashboard'
+  | 'contentDashboard'
   | 'aiAgent'
   | 'drafts'
   | 'autoLearning'
   | 'aiWebBuilder'
   | 'kbIngest'
   | 'kbCreate'
-  | 'factReview'
-  | 'enterpriseProfile'
   | 'questionPool'
   | 'sourceDiscovery'
   | 'articleGeneration'
@@ -459,6 +458,11 @@ export interface AppSetting {
   key: string;
   value: string | null;
   updated_at: string;
+}
+
+// 用户设置（#37 登录信息进设置；本轮仅用户名，手机号/公司等留待真实账号体系）
+export interface UserSettings {
+  userName: string;
 }
 
 // Assistant Runtime

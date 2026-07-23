@@ -20,6 +20,7 @@ import type {
   SourceDecision,
   TitleCandidate,
   ToolApproval,
+  UserSettings,
   VisibilityCheck,
 } from '@/types/domain';
 
@@ -273,4 +274,8 @@ export interface IpcChannels {
   'window:close': () => void;
   'window:isMaximized': () => boolean;
   'window:platform': () => NodeJS.Platform;
+
+  // 用户设置（#37 登录信息进设置）
+  'settings:get': () => UserSettings;
+  'settings:set': (patch: Partial<UserSettings>) => UserSettings;
 }

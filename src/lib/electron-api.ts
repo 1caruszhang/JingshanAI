@@ -192,3 +192,8 @@ export const titleApi = {
   generate: (projectId: number, targetQuestion: string) =>
     api.invoke('title:generate', projectId, targetQuestion),
 };
+
+export const settingsApi = {
+  get: () => api.invoke('settings:get'),
+  set: (patch: Parameters<IpcChannels['settings:set']>[0]) => api.invoke('settings:set', patch),
+};
