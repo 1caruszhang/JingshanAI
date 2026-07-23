@@ -36,7 +36,7 @@
 
 import {getDb} from '../../db/connection.ts';
 import type {AgentTask, AgentTaskStep, StepStatus, StepType} from '@/types/domain';
-import {route, type RouteContext} from './intentRouter.ts';
+import {routeLegacy as route, type RouteContext} from './intentRouter.ts';
 import {checkLoopGuard} from './loopGuard.ts';
 import * as executionLedger from './executionLedger.ts';
 import {executeWithGuard, type GuardedToolCallResult} from './toolGuard.ts';
