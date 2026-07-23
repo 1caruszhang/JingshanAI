@@ -9,12 +9,19 @@ import {
 import {validateFactExtractionOutput} from './factExtractionValidator.ts';
 import {normalizeFactCandidates} from './factNormalizationService.ts';
 import {createFact, type CreateFactInput} from './factRepository.ts';
-import type {FactExtractionResult} from './factTypes.ts';
+import {FACT_TYPES, type FactExtractionResult, type FactType, isFactType} from './factTypes.ts';
 
 export interface ExtractFactsInput {
   projectId: number;
   entryId?: number;
   chunkIds?: number[];
+  /**
+   * Optional domain-specific narrowing of the fact_type set the extractor
+   * should look for. When omitted, the full FACT_TYPES list is used.
+   * Passed through to the prompt builder and validator so only
+   * domain-relevant types are extracted.
+   */
+  factTypes?: string[];
   signal?: AbortSignal;
 }
 
@@ -39,7 +46,11 @@ export async function extractFacts(input: ExtractFactsInput): Promise<FactExtrac
     };
   }
 
-  const {system, user} = buildFactExtractionMessages({chunks, projectName});
+  // Resolve the effective fact_type set: caller can narrow it for a domain,
+  // otherwise the full ontology is used.
+  const effectiveFactTypes = resolveEffectiveFactTypes(input.factTypes);
+
+  const {system, user} = buildFactExtractionMessages({chunks, projectName, factTypes: effectiveFactTypes});
   const response = await chat(
     'fact_extraction',
     [
@@ -61,7 +72,7 @@ export async function extractFacts(input: ExtractFactsInput): Promise<FactExtrac
   }
 
   const chunkTexts = new Map(chunks.map((c) => [c.chunkId, c.chunkText]));
-  const validation = validateFactExtractionOutput(rawJson, {chunkTexts});
+  const validation = validateFactExtractionOutput(rawJson, {chunkTexts, allowedFactTypes: effectiveFactTypes});
 
   const normalizedCandidates = normalizeFactCandidates(validation.validFacts);
   if (normalizedCandidates.length === 0) {
@@ -131,6 +142,18 @@ function getProjectName(projectId: number): string | undefined {
     | {name: string}
     | undefined;
   return row?.name;
+}
+
+/**
+ * Resolves the effective fact_type set for a call. If the caller passes a
+ * non-empty domain-narrowed list, intersect it with the known FACT_TYPES
+ * (dropping any invalid types) and return that. Otherwise return undefined,
+ * meaning "use the full ontology".
+ */
+function resolveEffectiveFactTypes(factTypes?: string[]): readonly FactType[] | undefined {
+  if (!factTypes || factTypes.length === 0) return undefined;
+  const filtered = factTypes.filter((t): t is FactType => isFactType(t));
+  return filtered.length > 0 ? filtered : undefined;
 }
 
 function safeParseJson(content: string): unknown | undefined {

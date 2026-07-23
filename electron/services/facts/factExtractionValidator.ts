@@ -27,6 +27,12 @@ export interface FactValidationResult {
 export interface ValidationOptions {
   minConfidence?: number;
   chunkTexts: Map<number, string>;
+  /**
+   * Optional domain-narrowed set of allowed fact_types. When provided, facts
+   * whose type isn't in this set are skipped (the extractor was told to only
+   * produce these types). Omit to allow all FACT_TYPES.
+   */
+  allowedFactTypes?: readonly string[];
 }
 
 export function validateFactExtractionOutput(
@@ -48,10 +54,16 @@ export function validateFactExtractionOutput(
   const warnings: string[] = [];
 
   const minConfidence = options.minConfidence ?? 0.3;
+  const allowedFactTypes = options.allowedFactTypes;
 
   for (const fact of facts) {
     if (!isFactType(fact.fact_type)) {
       warnings.push(`跳过未知 fact_type: ${fact.fact_type}`);
+      continue;
+    }
+
+    if (allowedFactTypes && !allowedFactTypes.includes(fact.fact_type)) {
+      warnings.push(`跳过非本 domain 的 fact_type: ${fact.fact_type}`);
       continue;
     }
 

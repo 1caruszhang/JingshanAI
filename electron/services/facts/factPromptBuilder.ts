@@ -1,4 +1,4 @@
-import {FACT_TYPES, FACT_TYPE_LABELS, type FactType} from './factTypes.ts';
+import {FACT_TYPES, FACT_TYPE_LABELS, isFactType, type FactType} from './factTypes.ts';
 
 export const FACT_EXTRACTION_PROMPT_VERSION = 'fact-extraction.prompt-contract.v1';
 export const FACT_ONTOLOGY_PROMPT_VERSION = 'fact-ontology.prompt-contract.v1';
@@ -10,12 +10,26 @@ export interface FactChunkContext {
   chunkText: string;
 }
 
-const FACT_TYPE_LIST = FACT_TYPES.map((t) => `- ${t}: ${FACT_TYPE_LABELS[t as FactType]}`).join('\n');
+/**
+ * Builds the `fact_type` reference list shown to the LLM. When `factTypes` is
+ * provided (domain-narrowed), only those types are listed; otherwise the full
+ * ontology is used.
+ */
+function buildFactTypeList(factTypes?: readonly string[]): string {
+  const types = (factTypes && factTypes.length > 0 ? factTypes : FACT_TYPES).filter((t) =>
+    isFactType(t as string),
+  ) as readonly string[];
+  return types.map((t) => `- ${t}: ${FACT_TYPE_LABELS[t as FactType]}`).join('\n');
+}
 
 export function buildFactExtractionMessages(context: {
   chunks: FactChunkContext[];
   projectName?: string;
+  /** Optional domain-narrowed set; when omitted the full FACT_TYPES is used. */
+  factTypes?: readonly string[];
 }): {system: string; user: string} {
+  const factTypeList = buildFactTypeList(context.factTypes);
+
   const chunkBlocks = context.chunks
     .map(
       (c, idx) =>
@@ -26,7 +40,7 @@ export function buildFactExtractionMessages(context: {
   const system = `你是一位企业信息结构化提取专家。请严格根据用户提供的文本片段，抽取企业的关键经营事实。
 
 可抽取的事实类型（fact_type）必须是以下枚举之一，不能自由创造：
-${FACT_TYPE_LIST}
+${factTypeList}
 
 输出要求：
 1. 输出必须是合法的 JSON 对象，不要包含任何 Markdown 代码块或解释性文字。
@@ -88,7 +102,7 @@ ${filledFieldList}
 ${missingFieldList}
 
 完整可用的事实类型参考：
-${FACT_TYPE_LIST}
+${buildFactTypeList()}
 
 输出要求：
 1. 输出必须是合法的 JSON 对象，不要包含任何 Markdown 代码块或解释性文字。

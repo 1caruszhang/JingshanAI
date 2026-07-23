@@ -7,6 +7,15 @@ import {searchSimilarChunks} from '../vectorStore.ts';
 import {askQuestion} from '../ragService.ts';
 import {embedText} from '../embedding.ts';
 import {getDb} from '../../db/connection.ts';
+import {buildSystemPrompt, getFactTypesForDomain} from './geoAgentSystemPrompt.ts';
+import {executeWithGuard, type GuardedToolCallOptions} from './toolGuard.ts';
+import {generateQuestions} from '../article/questionPoolService.ts';
+import {discoverSources} from '../article/sourceDiscoveryService.ts';
+import {generateArticle} from '../article/articleGenerationService.ts';
+import {reviewClaims} from '../article/claimReviewService.ts';
+import {reviewGeo} from '../article/geoReviewService.ts';
+import {extractFacts} from '../facts/factExtractionService.ts';
+import type {Project} from '@/types/domain';
 
 const answerUserInputSchema = z.object({
   query: z.string().min(1).describe('用户问题'),
@@ -28,40 +37,111 @@ const projectCreateInputSchema = z.object({
   region: z.string().optional().describe('地区'),
 });
 
-function buildGlobalSystemPrompt(): string {
-  return `你是 GEO Agent（企业生成式引擎优化助手）。当前用户**未选择任何项目**，你处于 Global Chat 模式。
+const questionGenerateInputSchema = z.object({
+  projectId: z.number().int().positive().describe('项目 ID'),
+});
 
-你可以做的事情：
-- 回答用户关于 GEO、AI 搜索、内容优化的一般性问题。
-- 解释产品使用方法、功能概念。
-- 帮助用户规划 GEO 项目流程、建议需要准备哪些资料。
-- 调用 project_list 查看已有项目。
-- 调用 project_create 创建新项目。
+const sourceDiscoverInputSchema = z.object({
+  projectId: z.number().int().positive().describe('项目 ID'),
+  targetQuestion: z.string().min(1).describe('目标问题（用户的真实提问）'),
+});
 
-你**不能**做的事情：
-- 不要调用 kb_search、fact.extract、article.generate 等需要 project_id 的项目级工具。
-- 不要基于某个具体企业的知识库回答问题。
-- 如果用户提出需要项目资料的任务（如“帮我写篇文章”“检索一下我们公司资料”），请引导用户选择已有项目或创建新项目。`;
+const articleGenerateInputSchema = z.object({
+  projectId: z.number().int().positive().describe('项目 ID'),
+  strategy: z.enum(['support_article', 'ranking_article']).describe('文章策略'),
+  targetQuestion: z.string().min(1).describe('目标问题'),
+  supportArticleType: z
+    .enum(['enterprise_profile', 'product_service_intro', 'industry_insight', 'case_study', 'solution_guide'])
+    .optional()
+    .describe('支持类文章子类型（strategy = support_article 时可用）'),
+  title: z.string().optional().describe('可选文章标题'),
+});
+
+const factExtractInputSchema = z.object({
+  projectId: z.number().int().positive().describe('项目 ID'),
+  entryId: z.number().int().positive().optional().describe('可选：仅抽取指定 KB 条目'),
+  chunkIds: z.array(z.number().int().positive()).optional().describe('可选：仅抽取指定 chunk IDs'),
+});
+
+const claimReviewInputSchema = z.object({
+  artifactId: z.number().int().positive().describe('文章 artifact ID'),
+});
+
+const geoReviewInputSchema = z.object({
+  artifactId: z.number().int().positive().describe('文章 artifact ID'),
+});
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function getProjectRow(projectId: number): Project | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      'SELECT id, name, description, industry, region, domain, status, created_at, updated_at FROM projects WHERE id = ?',
+    )
+    .get(projectId) as Project | undefined;
+  return row ?? null;
 }
 
-function buildProjectSystemPrompt(projectId: number): string {
-  return `你是 GEO Agent（企业生成式引擎优化助手）。当前已选择项目 ID = ${projectId}，你处于 Project-aware GEO Agent 模式。
-
-可用工具：
-- kb_search：在项目知识库中检索相关资料片段。
-- answer_user：基于项目知识库直接回答用户问题。
-- project_list：列出所有项目（如需切换项目）。
-- project_create：创建新项目。
-
-工作原则：
-1. 如果用户的问题可以在企业知识库内回答，优先调用 answer_user。
-2. 如果用户只需要查找资料或你不确定答案，先调用 kb_search。
-3. 只使用工具返回的信息，不要编造。
-4. 回答保持简洁、专业。`;
+/**
+ * Context threaded through every Phase-7 tool executor so the toolGuard can
+ * audit the call, transition the owning task to `waiting_approval` for
+ * high-risk skills, and push `approval_request` MessageParts for medium/low.
+ *
+ * `taskId` / `messageId` are optional because the global (no-project) agent
+ * path and some callers don't have them yet; the guard degrades gracefully.
+ */
+export interface AgentToolContext {
+  taskId?: number | null;
+  messageId?: number | null;
+  /** Resolves a high-risk approval row when the user responds in the UI. */
+  waitForApproval?: (approvalId: number) => Promise<boolean>;
 }
 
-export function createGeoAgent(projectId?: number): DeepAgent {
+/**
+ * Runs a tool executor body under the toolGuard policy. Every Phase-7 tool
+ * goes through this so the guard's risk gating, ledger audit, and
+ * approval-request MessagePart side effects actually fire.
+ *
+ * The guard returns a structured result; for LangChain tools we unwrap a
+ * successful `completed` result and re-throw on `failed`/`rejected` so the
+ * agent sees the error. `toolName` is the dotted skill identifier used for
+ * ledger audit and risk lookup (matches the issue's naming).
+ */
+async function runGuarded<T>(
+  toolName: string,
+  input: unknown,
+  projectId: number | undefined,
+  ctx: AgentToolContext,
+  thunk: () => Promise<T>,
+): Promise<T> {
+  const options: GuardedToolCallOptions = {
+    skillName: toolName,
+    args: (input ?? {}) as Record<string, unknown>,
+    taskId: ctx.taskId ?? null,
+    projectId: projectId ?? null,
+    messageId: ctx.messageId ?? null,
+    waitForApproval: ctx.waitForApproval,
+  };
+
+  const guarded = await executeWithGuard<T>(options, thunk);
+
+  if (guarded.status === 'completed') {
+    return guarded.result as T;
+  }
+  if (guarded.status === 'failed') {
+    throw new Error(guarded.error ?? `${toolName} failed`);
+  }
+  // rejected (user declined a high-risk call) — surface as an error so the
+  // agent stops the current chain.
+  throw new Error(`${toolName} was rejected by the user`);
+}
+
+// ── Factory ─────────────────────────────────────────────────────────────────
+
+export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {}): DeepAgent {
   const model = createAgentModel();
+  const project = projectId ? getProjectRow(projectId) : null;
 
   const answerUserTool = tool(
     async (input) => {
@@ -121,8 +201,8 @@ export function createGeoAgent(projectId?: number): DeepAgent {
           input.industry ?? null,
           input.region ?? null,
         );
-      const projectId = Number(result.lastInsertRowid);
-      return `已创建项目「${input.name}」，项目 ID 为 ${projectId}。创建完成后可以录入企业资料，然后基于知识库执行 GEO 任务。`;
+      const newProjectId = Number(result.lastInsertRowid);
+      return `已创建项目「${input.name}」，项目 ID 为 ${newProjectId}。创建完成后可以录入企业资料，然后基于知识库执行 GEO 任务。`;
     },
     {
       name: 'project_create',
@@ -147,13 +227,160 @@ export function createGeoAgent(projectId?: number): DeepAgent {
       },
     );
     tools.push(kbSearchTool);
+
+    // ── Phase 7 service wrappers (T9) ─────────────────────────────────────
+
+    const questionGenerateTool = tool(
+      async (input) => {
+        return runGuarded('question.generate', input, input.projectId, toolCtx, async () => {
+          const items = await generateQuestions(input.projectId);
+          return JSON.stringify(
+            items.map((q) => ({
+              id: q.id,
+              questionText: q.questionText,
+              score: q.score,
+              scoreReason: q.scoreReason,
+              status: q.status,
+            })),
+            null,
+            2,
+          );
+        });
+      },
+      {
+        name: 'question_generate',
+        description:
+          '基于企业已确认事实，生成 5-10 个用户最可能向 AI 提问的目标问题，含商业价值评分。',
+        schema: questionGenerateInputSchema,
+      },
+    );
+    tools.push(questionGenerateTool);
+
+    const sourceDiscoverTool = tool(
+      async (input) => {
+        return runGuarded('source.discover', input, input.projectId, toolCtx, async () => {
+          const sources = await discoverSources(input.projectId, input.targetQuestion);
+          return JSON.stringify(sources, null, 2);
+        });
+      },
+      {
+        name: 'source_discover',
+        description: '为目标问题推荐权威参考信源（行业报告、榜单、协会等）。',
+        schema: sourceDiscoverInputSchema,
+      },
+    );
+    tools.push(sourceDiscoverTool);
+
+    const articleGenerateTool = tool(
+      async (input) => {
+        return runGuarded('article.generate', input, input.projectId, toolCtx, async () => {
+          const result = await generateArticle({
+            projectId: input.projectId,
+            strategy: input.strategy,
+            supportArticleType: input.supportArticleType,
+            targetQuestion: input.targetQuestion,
+            title: input.title,
+          });
+          return JSON.stringify(
+            {
+              artifactId: result.artifact.id,
+              title: result.artifact.title,
+              status: result.artifact.status,
+              claimsCount: result.claims.length,
+            },
+            null,
+            2,
+          );
+        });
+      },
+      {
+        name: 'article_generate',
+        description:
+          '基于企业已确认事实生成 GEO 文章（支持类或排行榜类）。会创建 artifact 并抽取 claim 列表。',
+        schema: articleGenerateInputSchema,
+      },
+    );
+    tools.push(articleGenerateTool);
+
+    const factExtractTool = tool(
+      async (input) => {
+        return runGuarded('fact.extract', input, input.projectId, toolCtx, async () => {
+          // Domain-specific ontology: narrow the fact_type set the extractor
+          // should look for based on project.domain. We pass the narrowed
+          // schema into extractFacts via the `factTypes` option so the LLM
+          // prompt and validation only consider domain-relevant types.
+          const proj = getProjectRow(input.projectId);
+          const relevantFactTypes = getFactTypesForDomain(proj?.domain ?? null);
+
+          const result = await extractFacts({
+            projectId: input.projectId,
+            entryId: input.entryId,
+            chunkIds: input.chunkIds,
+            factTypes: relevantFactTypes,
+          });
+
+          return JSON.stringify(
+            {
+              ...result,
+              domain: proj?.domain ?? null,
+              domainFactTypes: relevantFactTypes ?? 'all',
+            },
+            null,
+            2,
+          );
+        });
+      },
+      {
+        name: 'fact_extract',
+        description:
+          '从知识库 chunks 中抽取企业事实（写入 candidate facts，等待人工 review）。会根据项目 domain 选择对应的 ontology schema。',
+        schema: factExtractInputSchema,
+      },
+    );
+    tools.push(factExtractTool);
+
+    const claimReviewTool = tool(
+      async (input) => {
+        return runGuarded('claim.review', input, undefined, toolCtx, async () => {
+          const result = await reviewClaims(input.artifactId);
+          return JSON.stringify(result, null, 2);
+        });
+      },
+      {
+        name: 'claim_review',
+        description: '审核文章中的 Claim（断言）是否有足够的事实支持，输出通过/未通过与风险预警。',
+        schema: claimReviewInputSchema,
+      },
+    );
+    tools.push(claimReviewTool);
+
+    const geoReviewTool = tool(
+      async (input) => {
+        return runGuarded('geo.review', input, undefined, toolCtx, async () => {
+          const result = await reviewGeo(input.artifactId);
+          return JSON.stringify(result, null, 2);
+        });
+      },
+      {
+        name: 'geo_review',
+        description: '审核文章的 GEO 优化质量（结构、可引用性、Schema 等），输出评分与改进建议。',
+        schema: geoReviewInputSchema,
+      },
+    );
+    tools.push(geoReviewTool);
   }
+
+  const systemPrompt = buildSystemPrompt({
+    projectId,
+    projectName: project?.name,
+    projectDomain: project?.domain ?? null,
+  });
 
   return createDeepAgent({
     name: projectId ? 'geo-project-agent' : 'geo-global-agent',
     model,
     tools,
-    systemPrompt: projectId ? buildProjectSystemPrompt(projectId) : buildGlobalSystemPrompt(),
+    systemPrompt,
     checkpointer: false,
   });
 }
