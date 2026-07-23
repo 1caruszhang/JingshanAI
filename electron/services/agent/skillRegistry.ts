@@ -19,11 +19,24 @@ export type SkillRiskLevel = 'low' | 'medium' | 'high';
 export interface SkillFrontmatter {
   name: string;
   description: string;
-  domains: SkillDomain[];
-  capabilities: string[];
-  preconditions: string[];
+  /** Legacy (#43 schema will phase out). Optional so existing SKILL.md still load. */
+  domains?: SkillDomain[];
+  /** Legacy (#43 schema will phase out). Optional so existing SKILL.md still load. */
+  capabilities?: string[];
+  /** Legacy (#43 schema will phase out). Optional so existing SKILL.md still load. */
+  preconditions?: string[];
   risk_level: SkillRiskLevel;
-  requires_confirmation: boolean;
+  /** Legacy (#43 schema will phase out). Optional so existing SKILL.md still load. */
+  requires_confirmation?: boolean;
+  // ── New frontmatter fields (expand phase — all optional) ──
+  /** Whether this skill requires knowledge-base context to run. */
+  needsKb?: boolean;
+  /** Structured output schema (e.g. JSON Schema) describing the skill's output. */
+  outputSchema?: string;
+  /** Comma-separated list of tools the skill is allowed to invoke. */
+  tools?: string;
+  /** Few-shot examples guiding the skill's invocation. */
+  examples?: string;
 }
 
 export interface LoadedSkill {
@@ -42,7 +55,7 @@ export interface LoadedSkill {
 const VALID_DOMAINS = new Set<string>(['local_service', 'saas', 'ecommerce']);
 const VALID_RISK_LEVELS = new Set<string>(['low', 'medium', 'high']);
 
-function validateFrontmatter(
+export function validateFrontmatter(
   raw: unknown,
   filePath: string,
 ): SkillFrontmatter {
@@ -52,12 +65,12 @@ function validateFrontmatter(
 
   const fm = raw as Record<string, unknown>;
 
-  // name
+  // name (required)
   if (typeof fm.name !== 'string' || fm.name.trim() === '') {
     throw new Error(`[skillRegistry] ${filePath}: 'name' must be a non-empty string`);
   }
 
-  // description
+  // description (required)
   if (typeof fm.description !== 'string' || fm.description.trim() === '') {
     throw new Error(`[skillRegistry] ${filePath}: 'description' must be a non-empty string`);
   }
@@ -67,63 +80,91 @@ function validateFrontmatter(
     );
   }
 
-  // domains
-  if (!Array.isArray(fm.domains)) {
-    throw new Error(`[skillRegistry] ${filePath}: 'domains' must be an array`);
-  }
-  for (const d of fm.domains) {
-    if (!VALID_DOMAINS.has(d as string)) {
-      throw new Error(
-        `[skillRegistry] ${filePath}: invalid domain '${d}'. Allowed: ${[...VALID_DOMAINS].join(', ')}`,
-      );
-    }
-  }
-
-  // capabilities
-  if (!Array.isArray(fm.capabilities) || fm.capabilities.length === 0) {
-    throw new Error(
-      `[skillRegistry] ${filePath}: 'capabilities' must be a non-empty array`,
-    );
-  }
-  for (const c of fm.capabilities) {
-    if (typeof c !== 'string' || c.trim() === '') {
-      throw new Error(`[skillRegistry] ${filePath}: each capability must be a non-empty string`);
-    }
-  }
-
-  // preconditions
-  if (!Array.isArray(fm.preconditions)) {
-    throw new Error(`[skillRegistry] ${filePath}: 'preconditions' must be an array`);
-  }
-
-  // risk_level
+  // risk_level (required)
   if (!VALID_RISK_LEVELS.has(fm.risk_level as string)) {
     throw new Error(
       `[skillRegistry] ${filePath}: invalid risk_level '${fm.risk_level}'. Allowed: ${[...VALID_RISK_LEVELS].join(', ')}`,
     );
   }
 
-  // requires_confirmation
-  if (typeof fm.requires_confirmation !== 'boolean') {
-    throw new Error(
-      `[skillRegistry] ${filePath}: 'requires_confirmation' must be a boolean`,
+  // ── Legacy fields (now optional; validated only when present) ──
+  // domains
+  let domains: SkillDomain[] | undefined;
+  if (fm.domains !== undefined) {
+    if (!Array.isArray(fm.domains)) {
+      throw new Error(`[skillRegistry] ${filePath}: 'domains' must be an array`);
+    }
+    for (const d of fm.domains) {
+      if (!VALID_DOMAINS.has(d as string)) {
+        throw new Error(
+          `[skillRegistry] ${filePath}: invalid domain '${d}'. Allowed: ${[...VALID_DOMAINS].join(', ')}`,
+        );
+      }
+    }
+    domains = (fm.domains as unknown[]).filter(
+      (d): d is SkillDomain => VALID_DOMAINS.has(d as string),
     );
   }
+
+  // capabilities
+  let capabilities: string[] | undefined;
+  if (fm.capabilities !== undefined) {
+    if (!Array.isArray(fm.capabilities) || fm.capabilities.length === 0) {
+      throw new Error(
+        `[skillRegistry] ${filePath}: 'capabilities' must be a non-empty array`,
+      );
+    }
+    for (const c of fm.capabilities) {
+      if (typeof c !== 'string' || c.trim() === '') {
+        throw new Error(`[skillRegistry] ${filePath}: each capability must be a non-empty string`);
+      }
+    }
+    capabilities = (fm.capabilities as unknown[]).filter(
+      (c): c is string => typeof c === 'string',
+    );
+  }
+
+  // preconditions
+  let preconditions: string[] | undefined;
+  if (fm.preconditions !== undefined) {
+    if (!Array.isArray(fm.preconditions)) {
+      throw new Error(`[skillRegistry] ${filePath}: 'preconditions' must be an array`);
+    }
+    preconditions = (fm.preconditions as unknown[]).filter(
+      (p): p is string => typeof p === 'string',
+    );
+  }
+
+  // requires_confirmation
+  let requiresConfirmation: boolean | undefined;
+  if (fm.requires_confirmation !== undefined) {
+    if (typeof fm.requires_confirmation !== 'boolean') {
+      throw new Error(
+        `[skillRegistry] ${filePath}: 'requires_confirmation' must be a boolean`,
+      );
+    }
+    requiresConfirmation = fm.requires_confirmation;
+  }
+
+  // ── New optional fields (no validation beyond type; skip when absent) ──
+  const needsKb = fm.needsKb === undefined ? undefined : Boolean(fm.needsKb);
+  const outputSchema =
+    fm.outputSchema === undefined ? undefined : String(fm.outputSchema);
+  const tools = fm.tools === undefined ? undefined : String(fm.tools);
+  const examples = fm.examples === undefined ? undefined : String(fm.examples);
 
   return {
     name: fm.name as string,
     description: fm.description as string,
-    domains: (fm.domains as unknown[]).filter(
-      (d): d is SkillDomain => VALID_DOMAINS.has(d as string),
-    ),
-    capabilities: (fm.capabilities as unknown[]).filter(
-      (c): c is string => typeof c === 'string',
-    ),
-    preconditions: (fm.preconditions as unknown[]).filter(
-      (p): p is string => typeof p === 'string',
-    ),
+    domains,
+    capabilities,
+    preconditions,
     risk_level: fm.risk_level as SkillRiskLevel,
-    requires_confirmation: fm.requires_confirmation as boolean,
+    requires_confirmation: requiresConfirmation,
+    needsKb,
+    outputSchema,
+    tools,
+    examples,
   };
 }
 
@@ -242,7 +283,7 @@ export function getSkill(name: string): LoadedSkill | undefined {
  * Used by the routing layer to match user messages.
  */
 export function getAllCapabilities(): string[] {
-  return loadAllSkills().flatMap((s) => s.frontmatter.capabilities);
+  return loadAllSkills().flatMap((s) => s.frontmatter.capabilities ?? []);
 }
 
 /**
