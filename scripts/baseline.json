@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T15:37:34.471Z",
+  "generatedAt": "2026-07-23T15:51:21.976Z",
   "note": "structure contract (field presence + types + hard-constraint assertions), NOT text equality",
   "newPath": [
     {
