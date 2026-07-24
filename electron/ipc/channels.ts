@@ -11,6 +11,7 @@ import type {
   EnterpriseFact,
   FactReviewIntent,
   FactStatus,
+  InterruptDecision,
   Project,
   PublishRecord,
   QuestionPoolItem,
@@ -185,10 +186,14 @@ export interface IpcChannels {
     projectId?: number;
     title?: string;
     userGoal: string;
+    /** #90: 文件附件列表（名称、类型、字节数、可选的 base64 内容） */
+    files?: Array<{name: string; type: string; bytes: number; content?: string}>;
   }) => AgentTask;
   'agentTask:get': (id: number) => AgentTask | null;
   'agentTask:list': (filters?: {projectId?: number; status?: string; limit?: number}) => AgentTask[];
-  'agentTask:resume': (id: number) => void;
+  'agentTask:resume': (id: number, resumeValue?: unknown) => AgentTask;
+  /** #79: Respond to a HITL interrupt with structured decisions (approve/reject per tool). */
+  'agentTask:respondInterrupt': (taskId: number, decisions: InterruptDecision[]) => AgentTask;
   'agentTask:pause': (id: number) => void;
   'agentTask:cancel': (id: number) => void;
   'agentTask:retry': (id: number) => void;

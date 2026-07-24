@@ -8,12 +8,13 @@ import { useContentDashboardData } from './useContentDashboardData';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BookOpen, ChevronRight } from 'lucide-react';
+import { buildKbCoverageHealth, getCoverageColor } from '@/types/domain';
 
 export default function ContentDashboardView() {
   const { t, cls } = useTheme();
   const { navigateTo } = useView();
   const { setCurrentProject } = useAppState();
-  const { stats, kbHealth, kbAssets, projectStats, loading } = useContentDashboardData();
+  const { stats, kbHealth, kbAssets, confirmedFacts, projectStats, loading } = useContentDashboardData();
 
   const handleOpenProject = (projectId: number) => {
     const project = projectStats.find((s) => s.project.id === projectId)?.project;
@@ -35,9 +36,10 @@ export default function ContentDashboardView() {
       <StatCards stats={stats} loading={loading} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <KbHealthPanel health={kbHealth} assets={kbAssets} loading={loading} />
+        {/* #103: Pass confirmedFacts for coverage-based health */}
+        <KbHealthPanel health={kbHealth} assets={kbAssets} loading={loading} confirmedFacts={confirmedFacts} />
 
-        {/* Per-project KB breakdown */}
+        {/* Per-project KB breakdown — #103: coverage-based */}
         <Card className={cn('p-5', cls('bg-white', 'bg-[#1c1c1f]'))}>
           <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
             <BookOpen className="w-4 h-4 text-primary" />
@@ -56,9 +58,11 @@ export default function ContentDashboardView() {
           ) : (
             <div className="space-y-2">
               {projectStats.map(({ project, entries, facts }) => {
-                const indexed = entries.filter((e) => e.status === 'indexed').length;
-                const pending = entries.filter((e) => e.status === 'pending').length;
-                const health = entries.length === 0 ? 0 : Math.round((indexed / entries.length) * 100);
+                const confirmed = facts.filter((f) => f.status === 'confirmed');
+                const ch = buildKbCoverageHealth(confirmed, entries.length);
+                const isNA = ch.coverage < 0;
+                const health = ch.coverage;
+                const colors = getCoverageColor(health);
                 return (
                   <button
                     key={project.id}
@@ -80,21 +84,14 @@ export default function ContentDashboardView() {
                         <Badge variant="secondary" className="text-[10px]">
                           {facts.length} {t.contentDashboardFact ?? '事实'}
                         </Badge>
-                        {pending > 0 && (
-                          <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-400/50">
-                            {pending} {t.contentDashboardPending ?? '待处理'}
-                          </Badge>
-                        )}
+                        <Badge variant="secondary" className="text-[10px]">
+                          {ch.confirmedFields.size}/14 {t.contentDashboardPending ?? '已覆盖'}
+                        </Badge>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={cn(
-                          'text-sm font-extrabold',
-                          health >= 80 ? 'text-emerald-500' : health >= 50 ? 'text-amber-500' : 'text-rose-500'
-                        )}
-                      >
-                        {health}
+                      <span className={cn('text-sm font-extrabold', isNA ? 'text-gray-400' : colors.text)}>
+                        {isNA ? (t.kbCoverageNa ?? 'N/A') : health}
                       </span>
                       <ChevronRight className={cn('w-4 h-4', cls('text-gray-400', 'text-zinc-500'))} />
                     </div>

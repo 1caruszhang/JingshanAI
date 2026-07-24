@@ -2,8 +2,9 @@ import 'dotenv/config';
 import {app, BrowserWindow, Menu} from 'electron';
 import {join} from 'node:path';
 import {setApp} from './utils/paths.ts';
-import {registerIpcHandlers, setMainWindow} from './ipc/handlers.ts';
+import {registerIpcHandlers, setMainWindow, scanPendingInterrupts} from './ipc/handlers.ts';
 import {loadAllSkills} from './services/agent/skillRegistry.ts';
+import {getDb} from './db/connection.ts';
 
 declare const __dirname: string;
 
@@ -67,6 +68,11 @@ app.whenReady().then(() => {
   }
   registerIpcHandlers();
   createWindow();
+
+  // #77: 启动时扫描未完成任务中的 pending interrupt
+  if (mainWindow) {
+    scanPendingInterrupts(getDb(), mainWindow);
+  }
 });
 
 app.on('window-all-closed', () => {

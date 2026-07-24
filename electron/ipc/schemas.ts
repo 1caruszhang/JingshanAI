@@ -171,7 +171,23 @@ export const AgentTaskCreateSchema = z.object({
   userGoal: z.string().min(1),
 });
 
-export const AgentTaskRunSchema = AgentTaskCreateSchema;
+// #90: AgentTaskRun 在 AgentTaskCreate 基础上新增 files 字段
+export const AgentTaskRunSchema = z.object({
+  sessionId: z.number().int().positive().optional(),
+  projectId: z.number().int().positive().optional(),
+  title: z.string().optional(),
+  userGoal: z.string().min(1),
+  files: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        type: z.string(),
+        bytes: z.number().int().positive(),
+        content: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
 
 export const AgentTaskIdSchema = z.number().int().positive();
 
@@ -179,6 +195,24 @@ export const AgentTaskListSchema = z.object({
   projectId: z.number().int().positive().optional(),
   status: z.string().optional(),
   limit: z.number().int().min(1).max(200).optional(),
+});
+
+// #77: resume 时传入 taskId 及可选的 resumeValue
+export const AgentTaskResumeSchema = z.object({
+  taskId: z.number().int().positive(),
+  resumeValue: z.unknown().optional(),
+});
+
+// #79: HITL interrupt response with structured decisions
+export const AgentTaskInterruptRespondSchema = z.object({
+  taskId: z.number().int().positive(),
+  decisions: z.array(
+    z.object({
+      toolName: z.string().min(1),
+      decision: z.enum(['approve', 'reject']),
+      reason: z.string().optional(),
+    }),
+  ),
 });
 
 // Drafts / artifacts

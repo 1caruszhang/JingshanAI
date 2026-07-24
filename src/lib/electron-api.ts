@@ -1,4 +1,5 @@
 import type {IpcChannels} from '../../electron/ipc/channels.ts';
+import type {CeoEvent, InterruptDecision} from '../types/domain.ts';
 
 export const api = {
   invoke: <T extends keyof IpcChannels>(
@@ -105,12 +106,38 @@ export const agentTaskApi = {
     api.invoke('agentTask:run', params),
   get: (id: number) => api.invoke('agentTask:get', id),
   list: (filters?: Parameters<IpcChannels['agentTask:list']>[0]) => api.invoke('agentTask:list', filters),
-  resume: (id: number) => api.invoke('agentTask:resume', id),
+  resume: (id: number, resumeValue?: unknown) => api.invoke('agentTask:resume', id, resumeValue),
+  /** #79: Respond to a HITL interrupt with structured approve/reject decisions. */
+  respondInterrupt: (taskId: number, decisions: InterruptDecision[]) =>
+    api.invoke('agentTask:respondInterrupt', taskId, decisions),
   pause: (id: number) => api.invoke('agentTask:pause', id),
   cancel: (id: number) => api.invoke('agentTask:cancel', id),
   retry: (id: number) => api.invoke('agentTask:retry', id),
   timeline: (id: number) => api.invoke('agentTask:timeline', id),
   artifacts: (id: number) => api.invoke('agentTask:artifacts', id),
+  /**
+   * #77: 监听主进程推送的 pending interrupt 事件。
+   *
+   * callback 接收 { taskId, status, interruptData }。
+   * 返回取消监听的 cleanup 函数。
+   *
+   * @deprecated #81: 使用 onEvent 替代，监听 type === 'interrupted' 事件。
+   */
+  onInterruptPending: (
+    callback: (data: {taskId: number; status: string; interruptData: unknown}) => void,
+  ) => api.on('agentTask:interrupt-pending', callback as (...args: unknown[]) => void),
+
+  /**
+   * #81: 监听 CEO 事件流（替代 SQLite 轮询 + agentTask:interrupt-pending）。
+   *
+   * callback 接收 CeoEvent 对象，包含 taskId、type、timestamp、data。
+   * 事件类型：plan_created | subagent_dispatched | subagent_step |
+   *          subagent_completed | aggregating | completed | interrupted | error
+   * 返回取消监听的 cleanup 函数。
+   */
+  onEvent: (
+    callback: (event: CeoEvent) => void,
+  ) => api.on('agentTask:event', callback as (...args: unknown[]) => void),
 };
 
 export const draftApi = {

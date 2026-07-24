@@ -4,6 +4,7 @@ import { Message, MessageContent, MessageResponse } from '@/components/ai-elemen
 import { Sources, SourcesContent, SourcesTrigger } from '@/components/ai-elements/sources';
 import { useTheme } from '@/hooks/use-theme';
 import { cn } from '@/lib/utils';
+import { getFileIconAndColor, formatFileSize } from '@/lib/file-upload';
 import type { ChatMessage } from '@/lib/file-upload';
 import { FileText } from 'lucide-react';
 import type { Components } from 'streamdown';
@@ -88,7 +89,43 @@ export default function ChatMessages({ messages, onApprovalRespond }: ChatMessag
               )}
             >
               {isUser ? (
-                <div className="whitespace-pre-wrap">{message.content}</div>
+                <>
+                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  {message.attachments && message.attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-white/20">
+                      {message.attachments.map((att, idx) => {
+                        const fileStyle = getFileIconAndColor(att.name, att.type, cls);
+                        const expired = att.bytes === 0 && !att.name.endsWith('/');
+                        return (
+                          <div
+                            key={idx}
+                            className={cn(
+                              'flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-lg text-[11px]',
+                              'bg-white/20 text-white/90',
+                            )}
+                          >
+                            <div className="w-5 h-5 rounded-md flex items-center justify-center bg-white/30 shrink-0">
+                              <fileStyle.Icon className={cn('w-3 h-3', fileStyle.iconColor)} />
+                            </div>
+                            <span className="truncate max-w-[120px] font-medium">
+                              {att.name}
+                            </span>
+                            {!expired && (
+                              <span className="opacity-60 text-[10px]">
+                                {formatFileSize(att.bytes)}
+                              </span>
+                            )}
+                            {expired && (
+                              <span className="opacity-50 text-[10px] italic">
+                                {t.chatFileExpired}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               ) : message.type === 'fact_review' && message.facts ? (
                 <PendingFactChatCard content={message.content} facts={message.facts} />
               ) : (

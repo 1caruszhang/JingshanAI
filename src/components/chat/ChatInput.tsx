@@ -27,6 +27,22 @@ import {
 import type { UploadedFile } from '@/lib/file-upload';
 import { getFileIconAndColor, formatFileSize } from '@/lib/file-upload';
 import type { Project } from '@/types/domain';
+import { toast } from '@/lib/toast';
+
+/** #92: 文件大小限制（字节） */
+const MAX_SINGLE_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024; // 20 MB
+
+/** #92: Chat 附件支持的 MIME 类型 */
+function isSupportedFileType(file: File): boolean {
+  if (file.type.startsWith('image/')) return true;
+  if (file.type === 'text/plain') return true;
+  if (file.type === 'text/markdown' || file.type === 'text/x-markdown') return true;
+  // 无 MIME 的文件（例如 .md 在某些系统上）通过扩展名判断
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  if (ext === 'md' || ext === 'markdown' || ext === 'txt') return true;
+  return false;
+}
 
 interface ChatInputProps {
   inputText: string;
@@ -107,21 +123,67 @@ export default function ChatInput({
     }
   }, [inputText]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
-    const newFiles: UploadedFile[] = Array.from(files).map((file) => {
-      const isImage = file.type.startsWith('image/');
-      const url = isImage ? URL.createObjectURL(file) : undefined;
-      return {
-        id: Math.random().toString(36).substring(2, 9),
-        name: file.name,
-        size: formatFileSize(file.size),
-        type: file.type,
-        url,
-      };
-    });
+    const fileList = Array.from(files);
+
+    // #92: 过滤不支持的文件类型
+    const unsupportedFiles = fileList.filter((f) => !isSupportedFileType(f));
+    for (const f of unsupportedFiles) {
+      toast.warning(t.chatFileTypeUnsupported);
+    }
+    const supportedFiles = fileList.filter((f) => isSupportedFileType(f));
+
+    // #92: 单文件大小限制（> 10MB 跳过）
+    const oversizedFiles = supportedFiles.filter((f) => f.size > MAX_SINGLE_FILE_BYTES);
+    for (const f of oversizedFiles) {
+      toast.warning(t.chatFileTooLarge.replace('{name}', f.name));
+    }
+    const sizeOkFiles = supportedFiles.filter((f) => f.size <= MAX_SINGLE_FILE_BYTES);
+
+    // #92: 总大小限制（> 20MB 时只保留前 N 个不超出限制的文件）
+    let totalBytes = 0;
+    const withinTotalFiles: File[] = [];
+    for (const f of sizeOkFiles) {
+      if (totalBytes + f.size > MAX_TOTAL_BYTES) {
+        toast.warning(t.chatFilesTotalTooLarge);
+        break;
+      }
+      totalBytes += f.size;
+      withinTotalFiles.push(f);
+    }
+
+    if (withinTotalFiles.length === 0) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // #91: 用 FileReader 读取每个文件为 base64 data URL，填入 UploadedFile.content，
+    // 为后续 IPC 透传 → multipart HumanMessage 全链路做准备。
+    const newFiles: UploadedFile[] = await Promise.all(
+      withinTotalFiles.map(
+        (file) =>
+          new Promise<UploadedFile>((resolve, reject) => {
+            const isImage = file.type.startsWith('image/');
+            const url = isImage ? URL.createObjectURL(file) : undefined;
+            const reader = new FileReader();
+            reader.onload = () => {
+              resolve({
+                id: Math.random().toString(36).substring(2, 9),
+                name: file.name,
+                bytes: file.size,
+                type: file.type,
+                url,
+                content: reader.result as string,
+              });
+            };
+            reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
 
     onFileUpload(newFiles);
     if (fileInputRef.current) {
@@ -183,7 +245,7 @@ export default function ChatInput({
                     <span className="truncate text-[11px] font-semibold leading-tight max-w-[120px] sm:max-w-[180px]">
                       {file.name}
                     </span>
-                    <span className="text-[9px] opacity-50 font-normal leading-tight">{file.size}</span>
+                    <span className="text-[9px] opacity-50 font-normal leading-tight">{formatFileSize(file.bytes)}</span>
                   </div>
                   <button
                     onClick={() => onRemoveFile(file.id)}

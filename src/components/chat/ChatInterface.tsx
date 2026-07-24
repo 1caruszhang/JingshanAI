@@ -10,11 +10,10 @@ import { useTheme } from '@/hooks/use-theme';
 import { useAppState } from '@/context/AppStateContext';
 import { chatService } from '@/services/chatService';
 import { projectService } from '@/services/projectService';
-import { assistantApi, api } from '@/lib/electron-api';
-import { handleIngestIntent } from '@/services/agentKnowledgeIngestService';
+import { agentTaskApi } from '@/lib/electron-api';
+import { handleIngestIntent, ingestUploadedFiles } from '@/services/agentKnowledgeIngestService';
 import type { UploadedFile, ChatMessage as UiChatMessage } from '@/lib/file-upload';
 import type { ChatSession } from '@/types/domain';
-import type { AssistantStreamEvent } from '@/types/domain';
 import WelcomeScreen from './WelcomeScreen';
 import EmptyChatState from './EmptyChatState';
 import ChatMessages from './ChatMessages';
@@ -74,14 +73,10 @@ export default function ChatInterface({
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  // True streaming refs
-  const currentRunRequestIdRef = useRef<string | null>(null);
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    if (!streamingMessageId) return;
-    // No fake streaming anymore — content is updated directly in generateResponse
-  }, [streamingMessageId]);
+  // #88: CEO agent task refs（替代 Assistant Runtime 的 requestId/unsubscribe）
+  const activeTaskIdRef = useRef<number | null>(null);
+  /** #88: 当前 CEO task 关联的 session，供 onCompleted 持久化 assistant 消息 */
+  const activeSessionIdRef = useRef<number | null>(null);
 
   const [internalFiles, setInternalFiles] = useState<UploadedFile[]>([]);
   const [internalProject, setInternalProject] = useState('');
@@ -135,6 +130,18 @@ export default function ChatInterface({
               render = undefined;
             }
           }
+          // #92: 解析 metadata_json 恢复附件 chips 展示
+          let attachments: UiChatMessage['attachments'] | undefined;
+          if (m.metadata_json) {
+            try {
+              const meta = JSON.parse(m.metadata_json) as {attachments?: Array<{name: string; type: string; bytes: number}>};
+              if (meta.attachments && meta.attachments.length > 0) {
+                attachments = meta.attachments;
+              }
+            } catch {
+              // metadata_json 格式异常，静默忽略
+            }
+          }
           return {
             id: `msg_${m.id}`,
             role: m.role as 'user' | 'assistant',
@@ -142,6 +149,7 @@ export default function ChatInterface({
             type: render?.type === 'fact_review' ? 'fact_review' : undefined,
             facts: render?.type === 'fact_review' ? (render.facts as UiChatMessage['facts']) : undefined,
             sources: undefined,
+            attachments,
           };
         }),
       );
@@ -198,6 +206,8 @@ export default function ChatInterface({
       content: string,
       model?: string,
       renderJson?: object,
+      /** #92: 附件元数据（仅存储 name/type/bytes，不存文件内容） */
+      metadataJson?: object,
     ) => {
       await chatService.addMessage({
         session_id: sessionId,
@@ -206,153 +216,97 @@ export default function ChatInterface({
         content,
         model: model ?? null,
         render_json: renderJson ? JSON.stringify(renderJson) : null,
+        metadata_json: metadataJson ? JSON.stringify(metadataJson) : null,
       });
     },
     [currentProject],
   );
 
   const generateResponse = useCallback(
-    async (sessionId: number, userContent: string) => {
+    async (
+      sessionId: number,
+      userContent: string,
+      files?: Array<{name: string; type: string; bytes: number; content?: string}>,
+    ) => {
       setIsLoading(true);
       setActiveTaskId(null);
 
-      const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const assistantId = `assistant_${Date.now()}`;
-      const assistantMessage: UiChatMessage = {
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      // Note: do NOT set streamingMessageId yet — ThinkingIndicator should show
-      // until the first text_delta arrives (set then).
-
-      // Unsubscribe from any previous event listener
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
-
-      currentRunRequestIdRef.current = requestId;
-
-      // Subscribe to assistant:event stream
-      const unsub = api.on('assistant:event', (...args: unknown[]) => {
-        const event = args[0] as AssistantStreamEvent;
-
-        if (event.type === 'text_delta') {
-          // First delta: transition from ThinkingIndicator to streaming message
-          setStreamingMessageId(assistantId);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: m.content + event.delta }
-                : m,
-            ),
-          );
-        } else if (event.type === 'approval_requested') {
-          // Inject approval card as a message
-          const approvalMsgId = `approval_${event.approvalId}_${Date.now()}`;
-          const approvalMsg: UiChatMessage = {
-            id: approvalMsgId,
-            role: 'assistant',
-            content: '',
-            approvalRequest: {
-              approvalId: event.approvalId ?? 0,
-              toolCallId: event.toolCallId,
-              title: event.title,
-              description: event.description,
-              status: 'pending',
-            },
-          };
-          setMessages((prev) => [...prev, approvalMsg]);
-        } else if (event.type === 'message_completed') {
-          setIsLoading(false);
-          setStreamingMessageId(null);
-          setActiveTaskId(null);
-          currentRunRequestIdRef.current = null;
-          if (unsubscribeRef.current) {
-            unsubscribeRef.current();
-            unsubscribeRef.current = null;
-          }
-        } else if (event.type === 'message_interrupted') {
-          // Reset any still-pending approval cards to rejected
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.approvalRequest?.status === 'pending'
-                ? { ...m, approvalRequest: { ...m.approvalRequest!, status: 'rejected' } }
-                : m,
-            ),
-          );
-          setIsLoading(false);
-          setStreamingMessageId(null);
-          setActiveTaskId(null);
-          currentRunRequestIdRef.current = null;
-          if (unsubscribeRef.current) {
-            unsubscribeRef.current();
-            unsubscribeRef.current = null;
-          }
-        } else if (event.type === 'error') {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: m.content || `错误：${event.message}` }
-                : m,
-            ),
-          );
-          setIsLoading(false);
-          setStreamingMessageId(null);
-          setActiveTaskId(null);
-          currentRunRequestIdRef.current = null;
-          if (unsubscribeRef.current) {
-            unsubscribeRef.current();
-            unsubscribeRef.current = null;
-          }
-        }
-      });
-      unsubscribeRef.current = unsub;
+      // #88: 走 CEO Agent Runtime（agentTask:run），替代 Assistant Runtime 流式路径。
+      // CEO runtime 用 DeepSeek + intent_router + 子 agent 编排，最终回复 token 级流式
+      // 推到 renderer（reply_delta 事件），中间推理分离到 thinkingTexts 折叠区。
+      // AgentTaskProgress 组件订阅 agentTask:event 并负责全部渲染（进度/流式回复/HITL）。
+      // #91: 提取文件内容，随 agentTaskApi.run 一起发送到 Agent Runtime，
+      // 最终以 multipart content blocks 格式拼入 HumanMessage。
+      const filesForIpc =
+        files && files.length > 0
+          ? files.map((f) => ({
+              name: f.name,
+              type: f.type,
+              bytes: f.bytes,
+              content: f.content,
+            }))
+          : undefined;
 
       try {
-        await assistantApi.streamStart({
+        const task = await agentTaskApi.run({
           sessionId,
           projectId: currentProject?.id,
-          requestId,
-          runType: 'chat',
+          userGoal: userContent,
+          title: userContent.slice(0, 80),
+          files: filesForIpc,
         });
+        activeTaskIdRef.current = task.id;
+        activeSessionIdRef.current = sessionId;
+        setActiveTaskId(task.id);
       } catch {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId ? { ...m, content: '请求失败，请稍后重试' } : m,
-          ),
-        );
+        const errMsg: UiChatMessage = {
+          id: `assistant_${Date.now()}`,
+          role: 'assistant',
+          content: '请求失败，请稍后重试',
+        };
+        setMessages((prev) => [...prev, errMsg]);
         setIsLoading(false);
-        setStreamingMessageId(null);
         setActiveTaskId(null);
-        currentRunRequestIdRef.current = null;
-        if (unsubscribeRef.current) {
-          unsubscribeRef.current();
-          unsubscribeRef.current = null;
-        }
       }
     },
     [currentProject],
   );
 
   const finalizeStreaming = useCallback(async () => {
-    // Cancel in-flight stream if any
-    if (currentRunRequestIdRef.current) {
+    // #88: 取消在途的 CEO agent task（替代 Assistant Runtime streamCancel）
+    if (activeTaskIdRef.current) {
       try {
-        await assistantApi.streamCancel(currentRunRequestIdRef.current);
+        await agentTaskApi.cancel(activeTaskIdRef.current);
       } catch {
         // ignore
       }
-      currentRunRequestIdRef.current = null;
-    }
-    if (unsubscribeRef.current) {
-      unsubscribeRef.current();
-      unsubscribeRef.current = null;
+      activeTaskIdRef.current = null;
     }
     setIsLoading(false);
     setStreamingMessageId(null);
+    setActiveTaskId(null);
+  }, []);
+
+  /** #88: CEO task 完成时同步最终回复到 UI 消息列表（DB 已由 runtime 持久化） */
+  const handleTaskCompleted = useCallback((reply: string) => {
+    // #fix: 防重复调用 — 轮询 onDone 和事件流 onCompleted 可能先后触发
+    if (!activeTaskIdRef.current) return;
+    // #fix: 空回复兜底——即便 runtime 已写 DB，事件流/轮询仍可能传回空字符串。
+    // 若直接 return 会残留 loading 状态 + AgentTaskProgress 组件，UI 卡在
+    // "CEO 正在汇总结果..."。改为显示占位回复并正常收尾。
+    const content = reply?.trim()
+      ? reply
+      : '任务已完成（未生成文本回复，可在历史记录中查看详情）。';
+    const replyMsg: UiChatMessage = {
+      id: `assistant_${Date.now()}`,
+      role: 'assistant',
+      content,
+    };
+    setMessages((prev) => [...prev, replyMsg]);
+    setIsLoading(false);
+    // 卸载 AgentTaskProgress（回复已进入消息流，避免重复显示）
+    activeTaskIdRef.current = null;
+    activeSessionIdRef.current = null;
     setActiveTaskId(null);
   }, []);
 
@@ -361,14 +315,25 @@ export default function ChatInterface({
       const text = message.text.trim();
       if (!text && uploadedFiles.length === 0) return;
 
+      // #91 fix: 在清空 uploadedFiles 前先快照附件数据，
+      // 避免 generateResponse 读取时 uploadedFiles 已被清空。
+      const filesSnapshot = uploadedFiles.length > 0
+        ? uploadedFiles.map((f) => ({name: f.name, type: f.type, bytes: f.bytes, content: f.content}))
+        : undefined;
+
       const userMsg: UiChatMessage = {
         id: `user_${Date.now()}`,
         role: 'user',
         content: text,
+        attachments:
+          filesSnapshot
+            ? filesSnapshot.map((f) => ({name: f.name, type: f.type, bytes: f.bytes}))
+            : undefined,
       };
       setMessages((prev) => [...prev, userMsg]);
       setInputText('');
 
+      // 清空 UI 状态（附件 chips 消失），但 filesSnapshot 保留了数据给 generateResponse 用
       if (onFileUpload) {
         onFileUpload([]);
       } else {
@@ -377,11 +342,59 @@ export default function ChatInterface({
 
       skipLoadRef.current = true;
       const session = await ensureSession(text);
-      await saveMessage(session.id, 'user', text);
+      // #92: 持久化附件元数据到 chat_messages.metadata_json（仅 name/type/bytes）
+      const attachmentMeta =
+        filesSnapshot
+          ? {attachments: filesSnapshot.map((f) => ({name: f.name, type: f.type, bytes: f.bytes}))}
+          : undefined;
+      await saveMessage(session.id, 'user', text, undefined, undefined, attachmentMeta);
       skipLoadRef.current = false;
 
-      // 优先识别“录入资料”意图
-      if (currentProject) {
+      // #91: 上传的文本类文件（txt/md）自动录入知识库 → 抽取事实，
+      // 让后续 CEO 子 agent（contentAgent 等）能通过 knowledge_entries 读到内容。
+      // 入库后不阻断流程——继续走 generateResponse。
+      let filesIngested = false;
+      if (currentProject && filesSnapshot) {
+        const textFiles = filesSnapshot.filter(
+          (f) => !f.type.startsWith('image/') && f.content,
+        );
+        if (textFiles.length > 0) {
+          try {
+            const ingestResult = await ingestUploadedFiles(textFiles, currentProject.id);
+            if (ingestResult && ingestResult.extractedCount > 0) {
+              // 入库并抽到事实 → 先展示事实审批卡片，再继续生成
+              const reviewMsg: UiChatMessage = {
+                id: `assistant_${Date.now()}`,
+                role: 'assistant',
+                content: `已将你上传的 ${ingestResult.entryCount} 份文档录入知识库，并抽取到 ${ingestResult.extractedCount} 条企业事实，请确认：`,
+                type: 'fact_review',
+                facts: ingestResult.facts,
+              };
+              await saveMessage(session.id, 'assistant', reviewMsg.content, undefined, {
+                type: reviewMsg.type,
+                facts: reviewMsg.facts,
+              });
+              setMessages((prev) => [...prev, reviewMsg]);
+              filesIngested = true;
+            } else if (ingestResult) {
+              // 入库成功但没抽到事实
+              const noticeMsg: UiChatMessage = {
+                id: `assistant_${Date.now()}`,
+                role: 'assistant',
+                content: `已将你上传的 ${ingestResult.entryCount} 份文档录入知识库。`,
+              };
+              await saveMessage(session.id, 'assistant', noticeMsg.content);
+              setMessages((prev) => [...prev, noticeMsg]);
+              filesIngested = true;
+            }
+          } catch {
+            // 入库失败不阻断主流程，CEO 仍能看到文件原文（通过 HumanMessage）
+          }
+        }
+      }
+
+      // 文件已自动入库时，跳过文本意图识别（避免把用户消息文本当资料重复入库）
+      if (!filesIngested && currentProject) {
         const ingestResult = await handleIngestIntent(text, currentProject.id);
         if (ingestResult?.handled) {
           const reply: UiChatMessage = {
@@ -400,7 +413,7 @@ export default function ChatInterface({
         }
       }
 
-      await generateResponse(session.id, text);
+      await generateResponse(session.id, text, filesSnapshot);
     },
     [uploadedFiles.length, ensureSession, generateResponse, onFileUpload, saveMessage, currentProject],
   );
@@ -490,10 +503,6 @@ export default function ChatInterface({
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       objectUrlsRef.current.clear();
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
     };
   }, []);
 
@@ -565,11 +574,17 @@ export default function ChatInterface({
                 }}
               />
             )}
-            {isLoading && !streamingMessageId && <ThinkingIndicator />}
+            {isLoading && !streamingMessageId && !activeTaskId && <ThinkingIndicator />}
             {activeTaskId && (
               <AgentTaskProgress
                 taskId={activeTaskId}
-                onDone={() => setActiveTaskId(null)}
+                onCompleted={handleTaskCompleted}
+                onDone={() => {
+                  // #fix: 轮询先于 IPC 事件流检测到终态时，
+                  // 确保始终清理 loading 状态（有回复时由 handleTaskCompleted 处理）
+                  setIsLoading(false);
+                  setActiveTaskId(null);
+                }}
               />
             )}
           </ConversationContent>

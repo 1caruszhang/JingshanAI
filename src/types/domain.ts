@@ -551,6 +551,72 @@ export interface AssistantReasoningStep {
 }
 
 // Agent-first Task Runtime
+/** #79: HITL interrupt decision — user approves or rejects a specific tool. */
+export interface InterruptDecision {
+  /** Tool name that triggered the interrupt (e.g. "fact_extract"). */
+  toolName: string;
+  /** "approve" to execute the tool, "reject" to skip it. */
+  decision: 'approve' | 'reject';
+  /** Optional note from the user. */
+  reason?: string;
+}
+
+// #81: CEO event stream types — pushed from main process to renderer via agentTask:event
+export type CeoEventType =
+  | 'plan_created'
+  | 'subagent_dispatched'
+  | 'subagent_step'
+  | 'subagent_completed'
+  | 'aggregating'
+  | 'reply_delta'
+  | 'completed'
+  | 'interrupted'
+  | 'error';
+
+export interface CeoEventPlan {
+  intent?: string;
+  skill?: string;
+  todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>;
+}
+
+export interface CeoEventSubagent {
+  name: string;
+  description?: string;
+}
+
+export interface CeoEventStep {
+  subagent: string;
+  tool: string;
+  status: 'running' | 'completed' | 'failed';
+  input?: unknown;
+  output?: unknown;
+}
+
+export interface CeoEventResult {
+  subagent: string;
+  summary: string;
+  artifactCount?: number;
+}
+
+export interface CeoEvent {
+  taskId: number;
+  type: CeoEventType;
+  timestamp: string;
+  data: {
+    plan?: CeoEventPlan;
+    subagent?: CeoEventSubagent;
+    step?: CeoEventStep;
+    result?: CeoEventResult;
+    interrupt?: unknown[];
+    error?: string;
+    finalReply?: string;
+    /** #88: 中间推理文本（规划/身份确认/工具调用后评估），在思考过程折叠区展示 */
+    thinkingTexts?: string[];
+    /** #88: 最终回复的 token 增量（流式），renderer 逐 token 追加到主回复 */
+    delta?: string;
+  };
+}
+
 export interface AgentTask {
   id: number;
   session_id: number | null;
@@ -565,6 +631,8 @@ export interface AgentTask {
   context_snapshot_json: string | null;
   budget_json: string | null;
   usage_json: string | null;
+  /** #77: LangGraph interrupt payload (null when task has no pending interrupt) */
+  interrupt_data_json: string | null;
   failure_count: number;
   loop_count: number;
   max_loop_count: number;
@@ -588,27 +656,6 @@ export interface AgentTaskStep {
   max_attempts: number;
   started_at: string | null;
   completed_at: string | null;
-  created_at: string;
-}
-
-export interface ExecutionLedgerEntry {
-  id: number;
-  task_id: number | null;
-  step_id: number | null;
-  project_id: number | null;
-  actor: string;
-  event_type: string;
-  event_name: string | null;
-  payload_json: string | null;
-  created_at: string;
-}
-
-export interface AgentLock {
-  id: number;
-  lock_key: string;
-  task_id: number;
-  owner: string;
-  expires_at: string;
   created_at: string;
 }
 

@@ -10,9 +10,13 @@ import {
 export interface UploadedFile {
   id: string;
   name: string;
-  size: string;
+  /** File size in bytes (replaces the old formatted string `size`). */
+  bytes: number;
   type: string;
+  /** Object URL for image preview (created via URL.createObjectURL). */
   url?: string;
+  /** File content as base64 data URL or raw text (populated for IPC transfer). */
+  content?: string;
 }
 
 export interface ChatMessage {
@@ -31,6 +35,8 @@ export interface ChatMessage {
     description?: string;
     status?: 'pending' | 'approved' | 'rejected';
   };
+  /** #92: 附件元数据（名称、类型、字节数），在用户消息气泡下方展示附件 chips */
+  attachments?: Array<{name: string; type: string; bytes: number}>;
   facts?: Array<{
     id: number;
     fact_type: string;

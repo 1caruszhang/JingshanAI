@@ -5,6 +5,8 @@ import {
   AgentTaskCreateSchema,
   AgentTaskIdSchema,
   AgentTaskListSchema,
+  AgentTaskResumeSchema,
+  AgentTaskInterruptRespondSchema,
   AgentTaskRunSchema,
   AppPathSchema,
   ArticleGenerateRankingSchema,
@@ -82,8 +84,8 @@ import {
   removeSourceDecision,
 } from '../services/article/sourceDiscoveryService.ts';
 import {runMdDrivenSkill} from '../services/agent/mdDrivenRunner.ts';
-import {runMinimalAgentTask} from '../services/agent/geoAgentRuntime.ts';
 import {runDeepAgentTask} from '../services/agent/geoAgentDeepAgentRuntime.ts';
+import {hasPendingInterrupt} from '../services/agent/checkpointer.ts';
 import {extractFacts} from '../services/facts/factExtractionService.ts';
 import {runFactOntologySkill} from '../services/facts/factOntologySkill.ts';
 import {confirmFacts, rejectFacts, modifyAndConfirm} from '../services/facts/factReviewService.ts';
@@ -434,14 +436,46 @@ export function registerIpcHandlers() {
     return db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(Number(result.lastInsertRowid));
   });
 
-  createHandler('agentTask:run', async (params) => {
+  createHandler('agentTask:run', (params) => {
     const validated = AgentTaskRunSchema.parse(params);
-    // #75: Wave 1 底座接入 — 切到 createDeepAgent 路径
-    return runDeepAgentTask(validated.userGoal, {
+    // #88: fire-and-forget — 先同步创建 task 记录并返回（renderer 立即拿到 taskId
+    // 订阅 agentTask:event），再在后台异步执行流式 CEO agent。
+    // 这样 reply_delta / plan_created 等事件能在 task 执行期间实时推到 renderer。
+    const created = db
+      .prepare(
+        `INSERT INTO agent_tasks (
+           session_id, project_id, title, user_goal, status,
+           current_objective, last_action, risk_level,
+           failure_count, loop_count, max_loop_count,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 'running', ?, ?, 'low', 0, 0, 12, datetime('now'), datetime('now'))`,
+      )
+      .run(
+        validated.sessionId ?? null,
+        validated.projectId ?? null,
+        validated.title ?? validated.userGoal.slice(0, 80),
+        validated.userGoal,
+        'CEO 分析用户意图',
+        null,
+      );
+    const taskId = Number(created.lastInsertRowid);
+    const taskRow = db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(taskId);
+
+    // 后台异步执行（不 await）—— 事件通过 mainWindow.webContents.send 实时推送
+    void runDeepAgentTask(validated.userGoal, {
       sessionId: validated.sessionId,
       projectId: validated.projectId,
       title: validated.title,
+      files: validated.files as
+        | Array<{name: string; type: string; bytes: number; content?: string}>
+        | undefined,
+      mainWindow,
+      taskId,
+    }).catch((err) => {
+      console.error(`[agentTask:run] background execution failed for task ${taskId}:`, err);
     });
+
+    return taskRow;
   });
 
   createHandler('agentTask:get', (id) => {
@@ -470,9 +504,75 @@ export function registerIpcHandlers() {
     return db.prepare(sql).all(...params);
   });
 
-  createHandler('agentTask:resume', (id) => {
-    const validated = AgentTaskIdSchema.parse(id);
-    db.prepare("UPDATE agent_tasks SET status = 'running', updated_at = datetime('now') WHERE id = ?").run(validated);
+  // #77: resume 实现 — 传递 resumeValue 给 runDeepAgentTask
+  // #88: fire-and-forget（与 agentTask:run 一致），事件实时推送
+  createHandler('agentTask:resume', (params) => {
+    const validated = AgentTaskResumeSchema.parse(params);
+    const task = db
+      .prepare('SELECT * FROM agent_tasks WHERE id = ?')
+      .get(validated.taskId) as AgentTask | undefined;
+    if (!task) throw new Error(`Task ${validated.taskId} not found`);
+
+    db.prepare(
+      `UPDATE agent_tasks SET status = 'running', updated_at = datetime('now') WHERE id = ?`,
+    ).run(validated.taskId);
+
+    void runDeepAgentTask(task.user_goal, {
+      sessionId: task.session_id ?? undefined,
+      projectId: task.project_id ?? undefined,
+      title: task.title ?? undefined,
+      resumeValue: validated.resumeValue,
+      mainWindow,
+      taskId: validated.taskId,
+    }).catch((err) => {
+      console.error(`[agentTask:resume] background execution failed for task ${validated.taskId}:`, err);
+    });
+
+    return task;
+  });
+
+  // #79: HITL interrupt response — 用户审批中断工具后恢复执行
+  // #88: fire-and-forget（与 agentTask:run 一致），事件实时推送
+  createHandler('agentTask:respondInterrupt', (params) => {
+    const validated = AgentTaskInterruptRespondSchema.parse(params);
+    const task = db
+      .prepare('SELECT * FROM agent_tasks WHERE id = ?')
+      .get(validated.taskId) as AgentTask | undefined;
+    if (!task) throw new Error(`Task ${validated.taskId} not found`);
+
+    // 更新 tool_approvals 审计表
+    for (const decision of validated.decisions) {
+      try {
+        const newStatus = decision.decision === 'approve' ? 'approved' : 'rejected';
+        db.prepare(
+          `UPDATE tool_approvals SET
+             status = ?,
+             reviewer_note = ?,
+             reviewed_at = datetime('now')
+           WHERE tool_call_id = ? AND approval_type = ? AND status = 'requested'`,
+        ).run(newStatus, decision.reason ?? null, validated.taskId, decision.toolName);
+      } catch (auditErr) {
+        console.warn('[handlers] failed to update tool_approvals:', auditErr);
+      }
+    }
+
+    db.prepare(
+      `UPDATE agent_tasks SET status = 'running', updated_at = datetime('now') WHERE id = ?`,
+    ).run(validated.taskId);
+
+    // 将 decisions 封装为 resumeValue 传给 LangGraph Command({resume: ...})
+    void runDeepAgentTask(task.user_goal, {
+      sessionId: task.session_id ?? undefined,
+      projectId: task.project_id ?? undefined,
+      title: task.title ?? undefined,
+      resumeValue: {decisions: validated.decisions},
+      mainWindow,
+      taskId: validated.taskId,
+    }).catch((err) => {
+      console.error(`[agentTask:respondInterrupt] background execution failed for task ${validated.taskId}:`, err);
+    });
+
+    return task;
   });
 
   createHandler('agentTask:pause', (id) => {
@@ -825,4 +925,49 @@ export function registerIpcHandlers() {
     const validated = SettingsUpdateSchema.parse(patch);
     return updateUserSettings(validated);
   });
+}
+
+/**
+ * #77 启动时扫描未完成任务中的 pending interrupt。
+ *
+ * 遍历 status IN ('running', 'waiting_user_input', 'waiting_approval') 的
+ * agent_tasks，通过 thread_id 检查 checkpoints 表中是否存在 __interrupt__ 通道，
+ * 若有则通过 IPC 事件推送给 Renderer 以提示用户恢复。
+ */
+export function scanPendingInterrupts(db: ReturnType<typeof getDb>, win: BrowserWindow | null) {
+  if (!win) return;
+
+  try {
+    const tasks = db
+      .prepare(
+        `SELECT id, user_goal, status, interrupt_data_json
+         FROM agent_tasks
+         WHERE status IN ('running', 'waiting_user_input', 'waiting_approval')
+         ORDER BY created_at DESC`,
+      )
+      .all() as Array<{
+      id: number;
+      user_goal: string;
+      status: string;
+      interrupt_data_json: string | null;
+    }>;
+
+    for (const task of tasks) {
+      const threadId = `task-${task.user_goal.slice(0, 20).replace(/\s+/g, '_')}`;
+      if (hasPendingInterrupt(threadId)) {
+        console.log(
+          `[handlers] scanPendingInterrupts: task ${task.id} has pending interrupt (thread: ${threadId})`,
+        );
+        win.webContents.send('agentTask:interrupt-pending', {
+          taskId: task.id,
+          status: task.status,
+          interruptData: task.interrupt_data_json
+            ? JSON.parse(task.interrupt_data_json)
+            : null,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[handlers] scanPendingInterrupts error:', err);
+  }
 }

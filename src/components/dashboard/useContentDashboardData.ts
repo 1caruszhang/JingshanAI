@@ -24,6 +24,8 @@ export interface ContentDashboardData {
   stats: StatCardItem[];
   kbHealth: KbHealth;
   kbAssets: KbAsset[];
+  /** #103: Confirmed facts for coverage-based health panel. */
+  confirmedFacts: EnterpriseFact[];
   projectStats: ProjectKbStat[];
   loading: boolean;
 }
@@ -46,6 +48,7 @@ export function useContentDashboardData(): ContentDashboardData {
   const [stats, setStats] = useState<StatCardItem[]>([]);
   const [kbHealth, setKbHealth] = useState<KbHealth>({ health: 0, indexed: 0, pending: 0 });
   const [kbAssets, setKbAssets] = useState<KbAsset[]>([]);
+  const [confirmedFacts, setConfirmedFacts] = useState<EnterpriseFact[]>([]);
   const [projectStats, setProjectStats] = useState<ProjectKbStat[]>([]);
 
   useEffect(() => {
@@ -78,6 +81,7 @@ export function useContentDashboardData(): ContentDashboardData {
 
         setKbHealth(buildKbHealth(allEntries));
         setKbAssets(buildKbAssets(allEntries));
+        setConfirmedFacts(allFacts.filter((f) => f.status === 'confirmed'));
         setProjectStats(projectKbStats);
       } finally {
         setTimeout(() => {
@@ -92,5 +96,5 @@ export function useContentDashboardData(): ContentDashboardData {
     };
   }, []);
 
-  return { stats, kbHealth, kbAssets, projectStats, loading };
+  return { stats, kbHealth, kbAssets, confirmedFacts, projectStats, loading };
 }
