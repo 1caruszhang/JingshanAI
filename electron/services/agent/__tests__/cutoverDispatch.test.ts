@@ -11,10 +11,8 @@
  *     graceful-skip path for a wired service intent).
  *   - md-driven skills with `migrated:false` carry the flag through so the
  *     runtime surfaces the「能力升级中」placeholder instead of executing.
- *   - The pause intent `publish.plan` routes as kind='pause' (NOT in
- *     SERVICE_EXECUTORS — its pause path lives in the runtime).
- *   - `SKILL_EXECUTORS` is gone from the factory (the old dual registry is
- *     deleted); only `SERVICE_EXECUTORS` remains.
+ *   - The pause intent `publish.plan` routes as kind='pause' (NOT in any
+ *     executor map — its pause path lives in the runtime).
  *
  * The chat call is stubbed via `opts.chatFn`; the blockHook is allow-all so
  * tests focus on routing + dispatch wiring, not policy.
@@ -25,8 +23,6 @@ import assert from 'node:assert/strict';
 
 import {route, type ChatFn, type RouteContext} from '../intentRouter.ts';
 import {SKILL_ROUTES} from '../skillRoutes.ts';
-import {SERVICE_EXECUTORS} from '../geoAgentFactory.ts';
-import * as geoAgentFactory from '../geoAgentFactory.ts';
 
 const allowAll = () => null;
 const ctx: RouteContext = {};
@@ -42,32 +38,6 @@ describe('#62 cutover — question.generate service route', () => {
     if (result.type !== 'skill') return;
     assert.equal(result.skillName, 'question.generate');
     assert.equal(result.kind, 'service');
-  });
-});
-
-describe('#62 cutover — service dispatch wiring', () => {
-  const serviceRoutes = SKILL_ROUTES.filter((r) => r.kind === 'service');
-
-  it('every service-kind route has a registered executor in SERVICE_EXECUTORS', () => {
-    // claim.parsing is the one service intent without a backing service yet;
-    // it is allowed to be absent. Every OTHER service intent must be wired.
-    const unwired = serviceRoutes
-      .filter((r) => r.intent !== 'claim.parsing')
-      .filter((r) => !(r.intent in SERVICE_EXECUTORS))
-      .map((r) => r.intent);
-    assert.deepEqual(unwired, [], `unwired service intents: ${unwired.join(', ')}`);
-  });
-
-  it('claim.parsing intentionally has no executor (graceful skip at runtime)', () => {
-    assert.equal('claim.parsing' in SERVICE_EXECUTORS, false);
-  });
-
-  it('publish.plan (pause) is NOT in SERVICE_EXECUTORS — pause path lives in runtime', () => {
-    assert.equal('publish.plan' in SERVICE_EXECUTORS, false);
-  });
-
-  it('the old SKILL_EXECUTORS registry is deleted from the factory module', () => {
-    assert.equal('SKILL_EXECUTORS' in geoAgentFactory, false);
   });
 });
 

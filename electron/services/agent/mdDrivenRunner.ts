@@ -48,7 +48,6 @@ import {
   type ToolExecContext,
   type ToolResult,
 } from './toolExecutors.ts';
-import {executeWithGuard} from './toolGuard.ts';
 import * as articleRepository from '../article/articleRepository.ts';
 import {parseClaims as parseClaimsDefault} from '../article/claimParsingService.ts';
 
@@ -182,33 +181,22 @@ function buildDefaultExecutorContext(projectId?: number): ToolExecContext {
 }
 
 /**
- * 默认工具执行包装器：经 executeWithGuard 做 risk gating + ledger。
- * 工具以 skillName=toolName 视为 low risk（ranking 编排工具无 high-risk），
- * ledger 记录到 taskId/stepId/projectId。失败时包装为 ToolResult。
+ * #81: 默认工具执行包装器（toolGuard 退役后直接执行）。
+ * 失败时包装为 ToolResult。
  */
 function buildDefaultExecuteTool(
-  taskId?: number | null,
-  stepId?: number | null,
-  projectId?: number | null,
+  _taskId?: number | null,
+  _stepId?: number | null,
+  _projectId?: number | null,
 ): Parameters<typeof runToolCallLoop>[0]['executeTool'] {
-  return async (name, executor, args, ctx) => {
-    const guarded = await executeWithGuard(
-      {
-        skillName: name,
-        args,
-        taskId: taskId ?? undefined,
-        stepId: stepId ?? undefined,
-        projectId: projectId ?? undefined,
-      },
-      () => executor(args, ctx),
-    );
-    if (guarded.status === 'completed') {
-      return {success: true, result: guarded.result};
+  return async (_name, executor, args, ctx) => {
+    try {
+      const result = await executor(args, ctx);
+      return {success: true, result};
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {success: false, error: message};
     }
-    return {
-      success: false,
-      error: guarded.error ?? `工具 ${name} 状态：${guarded.status}`,
-    };
   };
 }
 

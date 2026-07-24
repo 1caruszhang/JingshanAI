@@ -1,21 +1,18 @@
 import {tool} from '@langchain/core/tools';
-import {createDeepAgent} from 'deepagents';
 import {z} from 'zod';
-import type {DeepAgent} from 'deepagents';
-import {createAgentModel} from './geoAgentModel.ts';
+import type {createAgentModel} from './geoAgentModel.ts';
 import {searchSimilarChunks} from '../vectorStore.ts';
 import {askQuestion} from '../ragService.ts';
 import {embedText} from '../embedding.ts';
 import {getDb} from '../../db/connection.ts';
-import {buildSystemPrompt, getFactTypesForDomain} from './geoAgentSystemPrompt.ts';
 import {loadPrompt, loadSoulAndRule} from '../../prompts/loader.ts';
-import {executeWithGuard, type GuardedToolCallOptions} from './toolGuard.ts';
 import {generateQuestions} from '../article/questionPoolService.ts';
 import {discoverSources} from '../article/sourceDiscoveryService.ts';
 import {generateArticle} from '../article/articleGenerationService.ts';
 import {reviewClaims} from '../article/claimReviewService.ts';
 import {reviewGeo} from '../article/geoReviewService.ts';
 import {extractFacts} from '../facts/factExtractionService.ts';
+import type {SkillDomain} from './skillRegistry.ts';
 import type {Project} from '@/types/domain';
 
 const answerUserInputSchema = z.object({
@@ -85,76 +82,34 @@ export function getProjectRow(projectId: number): Project | null {
 }
 
 /**
- * Context threaded through every Phase-7 tool executor so the toolGuard can
- * audit the call, transition the owning task to `waiting_approval` for
- * high-risk skills, and push `approval_request` MessageParts for medium/low.
- *
- * `taskId` / `messageId` are optional because the global (no-project) agent
- * path and some callers don't have them yet; the guard degrades gracefully.
+ * #81: Extracted from retired geoAgentSystemPrompt.ts.
+ * Returns domain-specific fact type filters for fact extraction, or undefined
+ * for default (all types).
  */
-export interface AgentToolContext {
-  taskId?: number | null;
-  messageId?: number | null;
-  /** Resolves a high-risk approval row when the user responds in the UI. */
-  waitForApproval?: (approvalId: number) => Promise<boolean>;
+export function getFactTypesForDomain(domain: string | null | undefined): string[] | undefined {
+  if (!domain) return undefined;
+  switch (domain as SkillDomain) {
+    case 'local_service':
+      return [
+        'full_name', 'short_name', 'detailed_address', 'service_area',
+        'industry', 'products_services', 'target_customers',
+        'core_advantages', 'trust_backing', 'customer_cases', 'contact',
+      ];
+    case 'saas':
+      return [
+        'full_name', 'short_name', 'industry', 'products_services',
+        'related_brands', 'target_customers', 'core_advantages',
+        'trust_backing', 'pain_points', 'customer_cases', 'contact',
+      ];
+    default:
+      return undefined;
+  }
 }
 
-/**
- * Runs a tool executor body under the toolGuard policy. Every Phase-7 tool
- * goes through this so the guard's risk gating, ledger audit, and
- * approval-request MessagePart side effects actually fire.
- *
- * The guard returns a structured result; for LangChain tools we unwrap a
- * successful `completed` result and re-throw on `failed`/`rejected` so the
- * agent sees the error. `toolName` is the dotted skill identifier used for
- * ledger audit and risk lookup (matches the issue's naming).
- */
-async function runGuarded<T>(
-  toolName: string,
-  input: unknown,
-  projectId: number | undefined,
-  ctx: AgentToolContext,
-  thunk: () => Promise<T>,
-): Promise<T> {
-  const options: GuardedToolCallOptions = {
-    skillName: toolName,
-    args: (input ?? {}) as Record<string, unknown>,
-    taskId: ctx.taskId ?? null,
-    projectId: projectId ?? null,
-    messageId: ctx.messageId ?? null,
-    waitForApproval: ctx.waitForApproval,
-  };
-
-  const guarded = await executeWithGuard<T>(options, thunk);
-
-  if (guarded.status === 'completed') {
-    return guarded.result as T;
-  }
-  if (guarded.status === 'failed') {
-    throw new Error(guarded.error ?? `${toolName} failed`);
-  }
-  // rejected (user declined a high-risk call) — surface as an error so the
-  // agent stops the current chain.
-  throw new Error(`${toolName} was rejected by the user`);
-}
-
-// ── Skill executors (shared by createGeoAgent tools and the runtime) ─────────
+// ── Skill executors (shared by subagents) ────────────────────────────────────
 //
-// Each executor is the body that used to live inline inside the LangChain
-// `tool(...)` wrappers below. They are extracted here so that BOTH the
-// `createGeoAgent` tool registration path AND the Agent-first Runtime
-// (geoAgentRuntime.ts) invoke the exact same implementation under the
-// toolGuard policy.
-//
-// After the #62 cutover the runtime dispatches service-kind intents via the
-// `SERVICE_EXECUTORS` map keyed by the dotted intent id (e.g.
-// `question.generate`, `fact.extract`). The pause intent `publish.plan` is NOT
-// in this map — its pause path lives in the runtime. The LangChain `tool(...)`
-// wrappers in `createGeoAgent` call these same executor functions directly so
-// behaviour is identical regardless of entry point.
-//
-// Every executor returns a JSON string (the same contract the LangChain tools
-// used) so callers don't have to care which path produced the result.
+// #81: runGuarded + toolGuard 已退役，executor 直接调用底层 service。
+// 安全审批通过 LangGraph interrupt (HITL) 实现，不再通过 toolGuard 的 risk gating。
 
 export interface SkillExecutorArgs {
   projectId?: number;
@@ -174,137 +129,103 @@ export interface SkillExecutorArgs {
 
 export type SkillExecutor = (
   args: SkillExecutorArgs,
-  ctx: AgentToolContext,
 ) => Promise<string>;
 
-async function executeQuestionGenerate(
+export async function executeQuestionGenerate(
   args: SkillExecutorArgs,
-  ctx: AgentToolContext,
 ): Promise<string> {
-  return runGuarded('question.generate', args, args.projectId, ctx, async () => {
-    const items = await generateQuestions(args.projectId!);
-    return JSON.stringify(
-      items.map((q) => ({
-        id: q.id,
-        questionText: q.questionText,
-        score: q.score,
-        scoreReason: q.scoreReason,
-        status: q.status,
-      })),
-      null,
-      2,
-    );
-  });
+  const items = await generateQuestions(args.projectId!);
+  return JSON.stringify(
+    items.map((q) => ({
+      id: q.id,
+      questionText: q.questionText,
+      score: q.score,
+      scoreReason: q.scoreReason,
+      status: q.status,
+    })),
+    null,
+    2,
+  );
 }
 
-async function executeSourceDiscover(
+export async function executeSourceDiscover(
   args: SkillExecutorArgs,
-  ctx: AgentToolContext,
 ): Promise<string> {
-  return runGuarded('source.discover', args, args.projectId, ctx, async () => {
-    const sources = await discoverSources(args.projectId!, args.targetQuestion!);
-    return JSON.stringify(sources, null, 2);
-  });
+  const sources = await discoverSources(args.projectId!, args.targetQuestion!);
+  return JSON.stringify(sources, null, 2);
 }
 
 async function executeArticleGenerate(
   args: SkillExecutorArgs,
-  ctx: AgentToolContext,
 ): Promise<string> {
-  return runGuarded('article.generate', args, args.projectId, ctx, async () => {
-    const result = await generateArticle({
-      projectId: args.projectId!,
-      strategy: args.strategy!,
-      supportArticleType: args.supportArticleType,
-      targetQuestion: args.targetQuestion!,
-      title: args.title,
-    });
-    return JSON.stringify(
-      {
-        artifactId: result.artifact.id,
-        title: result.artifact.title,
-        status: result.artifact.status,
-        claimsCount: result.claims.length,
-      },
-      null,
-      2,
-    );
+  const result = await generateArticle({
+    projectId: args.projectId!,
+    strategy: args.strategy!,
+    supportArticleType: args.supportArticleType,
+    targetQuestion: args.targetQuestion!,
+    title: args.title,
   });
+  return JSON.stringify(
+    {
+      artifactId: result.artifact.id,
+      title: result.artifact.title,
+      status: result.artifact.status,
+      claimsCount: result.claims.length,
+    },
+    null,
+    2,
+  );
 }
 
-async function executeFactExtract(
+export async function executeFactExtract(
   args: SkillExecutorArgs,
-  ctx: AgentToolContext,
 ): Promise<string> {
-  return runGuarded('fact.extract', args, args.projectId, ctx, async () => {
-    const proj = getProjectRow(args.projectId!);
-    const relevantFactTypes = getFactTypesForDomain(proj?.domain ?? null);
+  const proj = getProjectRow(args.projectId!);
+  const relevantFactTypes = getFactTypesForDomain(proj?.domain ?? null);
 
-    const result = await extractFacts({
-      projectId: args.projectId!,
-      entryId: args.entryId,
-      chunkIds: args.chunkIds,
-      factTypes: relevantFactTypes,
-    });
-
-    return JSON.stringify(
-      {
-        ...result,
-        domain: proj?.domain ?? null,
-        domainFactTypes: relevantFactTypes ?? 'all',
-      },
-      null,
-      2,
-    );
+  const result = await extractFacts({
+    projectId: args.projectId!,
+    entryId: args.entryId,
+    chunkIds: args.chunkIds,
+    factTypes: relevantFactTypes,
   });
+
+  return JSON.stringify(
+    {
+      ...result,
+      domain: proj?.domain ?? null,
+      domainFactTypes: relevantFactTypes ?? 'all',
+    },
+    null,
+    2,
+  );
 }
 
-async function executeClaimReview(
+export async function executeClaimReview(
   args: SkillExecutorArgs,
-  ctx: AgentToolContext,
 ): Promise<string> {
-  return runGuarded('claim.review', args, undefined, ctx, async () => {
-    const result = await reviewClaims(args.artifactId!);
-    return JSON.stringify(result, null, 2);
-  });
+  const result = await reviewClaims(args.artifactId!);
+  return JSON.stringify(result, null, 2);
 }
 
-async function executeGeoReview(
+export async function executeGeoReview(
   args: SkillExecutorArgs,
-  ctx: AgentToolContext,
 ): Promise<string> {
-  return runGuarded('geo.review', args, undefined, ctx, async () => {
-    const result = await reviewGeo(args.artifactId!);
-    return JSON.stringify(result, null, 2);
-  });
+  const result = await reviewGeo(args.artifactId!);
+  return JSON.stringify(result, null, 2);
 }
+
+// ── Shared tool factories (reused by CEO runtime) ────────────────────────────
 
 /**
- * Service-intent dispatch map: dotted intent id → executor. Used by the
- * runtime's kind='service' branch (post-#62 cutover) to look up the executor
- * for a service-kind route result by its intent id.
+ * `answer_user` 工具工厂。
  *
- * Only service-kind intents are listed here. The pause intent `publish.plan`
- * is deliberately absent — its pause path lives in the runtime
- * (`handlePublishPlanPause`), not as an executor. md-driven intents go through
- * `runMdDrivenSkill` instead.
+ * 双模式：
+ * - 有 projectId → 基于项目知识库 RAG 回答（调用 `askQuestion`）
+ * - 无 projectId → 基于通用知识直接回答（调模型 + qa.md prompt）
  */
-export const SERVICE_EXECUTORS: Record<string, SkillExecutor> = {
-  'question.generate': executeQuestionGenerate,
-  'source.discover': executeSourceDiscover,
-  'article.generate': executeArticleGenerate,
-  'fact.extract': executeFactExtract,
-  'claim.review': executeClaimReview,
-  'geo.review': executeGeoReview,
-};
-
-// ── Factory ─────────────────────────────────────────────────────────────────
-
-export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {}): DeepAgent {
-  const model = createAgentModel();
-  const project = projectId ? getProjectRow(projectId) : null;
-
-  const answerUserTool = tool(
+export function createAnswerUserTool(model: ReturnType<typeof createAgentModel>) {
+  return tool(
     async (input) => {
       if (input.projectId) {
         const answer = await askQuestion(input.projectId, input.query, 5);
@@ -330,8 +251,11 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
       schema: answerUserInputSchema,
     },
   );
+}
 
-  const projectListTool = tool(
+/** `project_list` 工具工厂 — 列出所有项目。 */
+export function createProjectListTool() {
+  return tool(
     async () => {
       const db = getDb();
       const rows = db
@@ -347,8 +271,11 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
       schema: projectListInputSchema,
     },
   );
+}
 
-  const projectCreateTool = tool(
+/** `project_create` 工具工厂 — 创建新项目。 */
+export function createProjectCreateTool() {
+  return tool(
     async (input) => {
       const db = getDb();
       const result = db
@@ -370,101 +297,21 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
       schema: projectCreateInputSchema,
     },
   );
-
-  const tools: any[] = [answerUserTool, projectListTool, projectCreateTool];
-
-  if (projectId) {
-    const kbSearchTool = tool(
-      async (input) => {
-        const queryVector = await embedText(input.query);
-        const results = await searchSimilarChunks(input.projectId, queryVector, input.limit ?? 5);
-        return JSON.stringify(results, null, 2);
-      },
-      {
-        name: 'kb_search',
-        description: '在指定项目的知识库中进行向量检索，返回与查询最相关的资料片段。',
-        schema: kbSearchInputSchema,
-      },
-    );
-    tools.push(kbSearchTool);
-
-    // ── Phase 7 service wrappers (T9) ─────────────────────────────────────
-
-    const questionGenerateTool = tool(
-      async (input) => executeQuestionGenerate(input, toolCtx),
-      {
-        name: 'question_generate',
-        description:
-          '基于企业已确认事实，生成 5-10 个用户最可能向 AI 提问的目标问题，含商业价值评分。',
-        schema: questionGenerateInputSchema,
-      },
-    );
-    tools.push(questionGenerateTool);
-
-    const sourceDiscoverTool = tool(
-      async (input) => executeSourceDiscover(input, toolCtx),
-      {
-        name: 'source_discover',
-        description: '为目标问题推荐权威参考信源（行业报告、榜单、协会等）。',
-        schema: sourceDiscoverInputSchema,
-      },
-    );
-    tools.push(sourceDiscoverTool);
-
-    const articleGenerateTool = tool(
-      async (input) => executeArticleGenerate(input, toolCtx),
-      {
-        name: 'article_generate',
-        description:
-          '基于企业已确认事实生成 GEO 文章（支持类或排行榜类）。会创建 artifact 并抽取 claim 列表。',
-        schema: articleGenerateInputSchema,
-      },
-    );
-    tools.push(articleGenerateTool);
-
-    const factExtractTool = tool(
-      async (input) => executeFactExtract(input, toolCtx),
-      {
-        name: 'fact_extract',
-        description:
-          '从知识库 chunks 中抽取企业事实（写入 candidate facts，等待人工 review）。会根据项目 domain 选择对应的 ontology schema。',
-        schema: factExtractInputSchema,
-      },
-    );
-    tools.push(factExtractTool);
-
-    const claimReviewTool = tool(
-      async (input) => executeClaimReview(input, toolCtx),
-      {
-        name: 'claim_review',
-        description: '审核文章中的 Claim（断言）是否有足够的事实支持，输出通过/未通过与风险预警。',
-        schema: claimReviewInputSchema,
-      },
-    );
-    tools.push(claimReviewTool);
-
-    const geoReviewTool = tool(
-      async (input) => executeGeoReview(input, toolCtx),
-      {
-        name: 'geo_review',
-        description: '审核文章的 GEO 优化质量（结构、可引用性、Schema 等），输出评分与改进建议。',
-        schema: geoReviewInputSchema,
-      },
-    );
-    tools.push(geoReviewTool);
-  }
-
-  const systemPrompt = buildSystemPrompt({
-    projectId,
-    projectName: project?.name,
-    projectDomain: project?.domain ?? null,
-  });
-
-  return createDeepAgent({
-    name: projectId ? 'geo-project-agent' : 'geo-global-agent',
-    model,
-    tools,
-    systemPrompt,
-    checkpointer: false,
-  });
 }
+
+/** `kb_search` 工具工厂 — 向量检索知识库。 */
+export function createKbSearchTool() {
+  return tool(
+    async (input) => {
+      const queryVector = await embedText(input.query);
+      const results = await searchSimilarChunks(input.projectId, queryVector, input.limit ?? 5);
+      return JSON.stringify(results, null, 2);
+    },
+    {
+      name: 'kb_search',
+      description: '在指定项目的知识库中进行向量检索，返回与查询最相关的资料片段。',
+      schema: kbSearchInputSchema,
+    },
+  );
+}
+
