@@ -33,11 +33,12 @@ import {
   HoverCardTrigger,
 } from '../ui/hover-card';
 import { CoverageMatrixTooltip } from '../dashboard/KbHealthPanel';
-import { buildKbCoverageHealth, getCoverageColor } from '@/types/domain';
+import { buildKbCoverageHealth, getCoverageColor, buildProfileFromFacts } from '@/types/domain';
 import type { KbCoverageHealth } from '@/types/domain';
 import { Trash2, FileText, RefreshCw, Pencil, Check, X, AlertTriangle, Building2, Database, Upload } from 'lucide-react';
 import { detectFileType, extractFileName } from '@/lib/fileType';
 import { FileTypeBadge } from '../dashboard/FileTypeBadge';
+import FactsConfirmedChip from './FactsConfirmedChip';
 
 interface KbIngestPanelProps {
   projectId: number;
@@ -120,6 +121,15 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
       try {
         const factResult = await factApi.list({ projectId, limit: 200 });
         setFacts(factResult.facts);
+        // #106: auto-backfill the 企业资料 form from confirmed facts so users
+        // don't have to copy values over from 事实审核 by hand. Per type, the
+        // latest reviewed confirmed value wins; types with no confirmed fact
+        // are left empty (so rejecting the last candidate clears the field).
+        const built = buildProfileFromFacts(factResult.facts);
+        setProfileValues({
+          ...Object.fromEntries(FACT_TYPES.map((ft) => [ft, ''])),
+          ...built,
+        });
       } catch {
         setFacts([]);
       }
@@ -384,10 +394,14 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
             )}
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={loadData}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          刷新
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* #106: lightweight confirmed/total facts chip */}
+          <FactsConfirmedChip confirmed={confirmedFacts.length} total={facts.length} />
+          <Button variant="outline" size="sm" onClick={loadData}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            刷新
+          </Button>
+        </div>
       </div>
 
       {/* KB Health Summary (always-on) — #103: weighted coverage */}

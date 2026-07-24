@@ -889,6 +889,24 @@ export {
 } from '../../electron/services/facts/factTypes';
 export type { FactType, FactExtractionResult } from '../../electron/services/facts/factTypes';
 
+// Re-export KB coverage health types & utilities for use in Renderer
+// #103: Weighted enterprise field coverage health calculation.
+export {
+  buildKbCoverageHealth,
+  getCoverageColor,
+  KB_COVERAGE_MAX_SCORE,
+  FACT_TIER_GROUPS,
+} from '../../electron/services/facts/kbCoverageHealth';
+export type {
+  KbCoverageHealth,
+  FieldCoverage,
+  FactTierGroup,
+} from '../../electron/services/facts/kbCoverageHealth';
+
+// #106: Build the enterprise profile from confirmed facts (auto-backfill).
+export { buildProfileFromFacts } from '../../electron/services/facts/buildProfile';
+export type { ProfileFactInput } from '../../electron/services/facts/buildProfile';
+
 // Re-export AssistantStreamEvent for use in Renderer
 // Renderer code must never import directly from electron/services/* — use this re-export.
 export type { AssistantStreamEvent } from '../../electron/services/assistant/types';

@@ -107,6 +107,12 @@ export const i18n = {
     kbCoverageStatusFair: '一般',
     kbCoverageStatusPoor: '不足',
     kbCoverageFieldsCovered: '字段已覆盖',
+    // #106: Confirmed facts chip in the project header.
+    // kbConfirmedFactLabel sits between the confirmed count and the total
+    // (e.g. "5 已确认 / 12 条事实"). kbConfirmedFactTitle is the tooltip —
+    // uses {confirmed} and {total} placeholders replaced at render time.
+    kbConfirmedFactLabel: '已确认 /',
+    kbConfirmedFactTitle: '已确认 {confirmed} 条事实，共 {total} 条',
     // #104: Asset file-type badges
     kbAssetTypePdf: 'PDF',
     kbAssetTypeDocx: 'DOCX',
@@ -468,6 +474,9 @@ export const i18n = {
     kbCoverageStatusFair: 'Fair',
     kbCoverageStatusPoor: 'Insufficient',
     kbCoverageFieldsCovered: 'fields covered',
+    // #106: Confirmed facts chip in the project header.
+    kbConfirmedFactLabel: 'confirmed /',
+    kbConfirmedFactTitle: '{confirmed} of {total} facts confirmed',
     // #104: Asset file-type badges
     kbAssetTypePdf: 'PDF',
     kbAssetTypeDocx: 'DOCX',
