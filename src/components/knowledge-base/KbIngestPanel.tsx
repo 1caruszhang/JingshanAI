@@ -26,7 +26,17 @@ import {
 import { getFactTypeLabel } from '../../../electron/services/facts/factTypes';
 import FactCard from '@/components/facts/FactCard';
 import FactSourcePreview from '@/components/facts/FactSourcePreview';
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '../ui/hover-card';
+import { CoverageMatrixTooltip } from '../dashboard/KbHealthPanel';
+import { buildKbCoverageHealth, getCoverageColor } from '@/types/domain';
+import type { KbCoverageHealth } from '@/types/domain';
 import { Trash2, FileText, RefreshCw, Pencil, Check, X, AlertTriangle, Building2, Database, Upload } from 'lucide-react';
+import { detectFileType, extractFileName } from '@/lib/fileType';
+import { FileTypeBadge } from '../dashboard/FileTypeBadge';
 
 interface KbIngestPanelProps {
   projectId: number;
@@ -56,7 +66,7 @@ function factStatusLabel(t: Record<string, string>, status: FactStatus): string 
 }
 
 export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
-  const { cls, t } = useTheme();
+  const { cls, t, lang } = useTheme();
   const { setCurrentProject } = useAppState();
   const [project, setProject] = useState<Project | null>(null);
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
@@ -272,11 +282,25 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
     await loadData();
   };
 
-  // KB health summary
-  const indexedCount = entries.filter((e) => e.status === 'indexed').length;
-  const pendingCount = entries.filter((e) => e.status === 'pending').length;
-  const health = entries.length === 0 ? 0 : Math.round((indexedCount / entries.length) * 100);
-  const healthColor = health >= 80 ? 'text-emerald-500' : health >= 50 ? 'text-amber-500' : 'text-rose-500';
+  // KB health summary — #103: weighted coverage formula
+  const confirmedFacts = facts.filter((f) => f.status === 'confirmed');
+  const coverageHealth: KbCoverageHealth = buildKbCoverageHealth(confirmedFacts, entries.length);
+  const isNA = coverageHealth.coverage < 0;
+  const health = isNA ? 0 : coverageHealth.coverage;
+  const healthColor = isNA
+    ? 'text-gray-400'
+    : health >= 80
+      ? 'text-emerald-500'
+      : health >= 50
+        ? 'text-amber-500'
+        : 'text-rose-500';
+  const healthBarColor = isNA
+    ? 'bg-gray-300'
+    : health >= 80
+      ? 'bg-emerald-500'
+      : health >= 50
+        ? 'bg-amber-500'
+        : 'bg-rose-500';
 
   const filteredFacts = factStatusFilter === 'all'
     ? facts
@@ -348,32 +372,44 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
         </Button>
       </div>
 
-      {/* KB Health Summary (always-on) */}
+      {/* KB Health Summary (always-on) — #103: weighted coverage */}
       <Card className={cn('p-5', cls('bg-white', 'bg-[#1c1c1f]'))}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold flex items-center gap-2">
             <Database className="w-4 h-4 text-primary" />
-            {t.kbHealthTitle ?? '知识库健康度'}
+            {t.kbCoverageTitle ?? t.kbHealthTitle ?? '知识库健康度'}
           </h3>
           <div className="flex items-center gap-4 text-xs">
-            <span className={cn('font-bold', healthColor)}>{health}</span>
+            <span className={cn('font-bold', healthColor)}>
+              {isNA ? (t.kbCoverageNa ?? 'N/A') : health}
+            </span>
             <span className={cls('text-gray-500', 'text-zinc-400')}>
-              {indexedCount} {t.kbHealthIndexed ?? '已索引'} / {pendingCount} {t.kbHealthPending ?? '待处理'}
+              {coverageHealth.confirmedFields.size}/14 {lang === 'zh' ? '字段已覆盖' : 'fields covered'}
             </span>
             <span className={cls('text-gray-400', 'text-zinc-500')}>
               {facts.length} {t.kbFactCountSuffix ?? '条事实'}
             </span>
           </div>
         </div>
-        <div className="h-2 rounded-full bg-gray-100 dark:bg-zinc-800 overflow-hidden">
-          <div
-            className={cn(
-              'h-full rounded-full transition-all',
-              health >= 80 ? 'bg-emerald-500' : health >= 50 ? 'bg-amber-500' : 'bg-rose-500'
-            )}
-            style={{ width: `${health}%` }}
-          />
-        </div>
+        {isNA ? (
+          <div className="h-2 rounded-full bg-gray-100 dark:bg-zinc-800 overflow-hidden">
+            <div className="h-full rounded-full bg-gray-300" style={{ width: '0%' }} />
+          </div>
+        ) : (
+          <HoverCard>
+            <HoverCardTrigger asChild>
+              <div className="h-2 rounded-full bg-gray-100 dark:bg-zinc-800 overflow-hidden cursor-pointer">
+                <div
+                  className={cn('h-full rounded-full transition-all', healthBarColor)}
+                  style={{ width: `${health}%` }}
+                />
+              </div>
+            </HoverCardTrigger>
+            <HoverCardContent side="top" align="center" className="p-3">
+              <CoverageMatrixTooltip coverage={coverageHealth} lang={lang} />
+            </HoverCardContent>
+          </HoverCard>
+        )}
       </Card>
 
       {/* Tabs: 资料录入 / 知识条目 / 事实审核 */}
@@ -510,6 +546,11 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
               ) : (
                 entries.map((entry) => {
                   const statusInfo = statusBadgeMap[entry.status] ?? { label: entry.status, variant: 'secondary' as const };
+                  // #104: align file-name display with the dashboard asset list —
+                  // prefer the actual uploaded file name, fall back to the title.
+                  const isText = entry.source_type === 'text';
+                  const displayName = isText ? entry.title : (extractFileName(entry.source_file_path) ?? entry.title);
+                  const fileType = isText ? undefined : detectFileType(entry.source_file_path);
                   return (
                     <div
                       key={entry.id}
@@ -520,14 +561,16 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-medium text-sm truncate">{entry.title}</h3>
+                          <h3 className="font-medium text-sm truncate">{displayName}</h3>
+                          <FileTypeBadge
+                            fileType={fileType}
+                            sourceType={isText ? 'text' : 'file'}
+                          />
                           <Badge variant={statusInfo.variant} className="text-xs">
                             {statusInfo.label}
                           </Badge>
                         </div>
                         <p className={cn('text-xs', cls('text-gray-500', 'text-zinc-400'))}>
-                          {entry.source_type === 'text' ? '文本' : `文件: ${entry.source_file_path?.split('/').pop()}`}
-                          {' · '}
                           {entry.created_at}
                         </p>
                       </div>

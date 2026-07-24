@@ -20,11 +20,16 @@ import type {
 import type { VisibilityCheckItem } from './VisibilityPanel';
 import type { HypothesisItem } from './HypothesisPanel';
 import type { ActionItem, ActivityItem } from '../../types/domain';
+import { detectFileType, extractFileName, type FileType } from '../../lib/fileType';
 
 export interface KbAsset {
   name: string;
   status: 'indexed' | 'pending';
   words: number;
+  /** #104: coarse file-type bucket for the colored badge (undefined when unknown). */
+  fileType?: FileType;
+  /** #104: 'text' for manually-pasted entries, 'file' for uploaded documents. */
+  sourceType: 'text' | 'file';
 }
 
 export interface KbHealth {
@@ -58,11 +63,18 @@ export function buildKbHealth(entries: KnowledgeEntry[]): KbHealth {
 }
 
 export function buildKbAssets(entries: KnowledgeEntry[]): KbAsset[] {
-  return entries.slice(0, 5).map((entry) => ({
-    name: entry.title,
-    status: entry.status === 'indexed' ? 'indexed' : 'pending',
-    words: countWords(entry.content),
-  }));
+  return entries.slice(0, 5).map((entry) => {
+    // #104: prefer the actual uploaded file name over the user-supplied title.
+    const fileName = extractFileName(entry.source_file_path);
+    const isText = entry.source_type === 'text';
+    return {
+      name: fileName ?? entry.title,
+      status: entry.status === 'indexed' ? 'indexed' : 'pending',
+      words: countWords(entry.content),
+      fileType: isText ? undefined : detectFileType(entry.source_file_path),
+      sourceType: isText ? 'text' : 'file',
+    };
+  });
 }
 
 function formatDateLabel(iso: string): string {
