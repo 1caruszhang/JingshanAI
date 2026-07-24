@@ -14,7 +14,7 @@
 
 import {loadAllSkills, type LoadedSkill} from './skillRegistry';
 import type {SkillDomain} from './skillRegistry';
-import {loadPrompt} from '../../prompts/loader.ts';
+import {loadSoulAndRule} from '../../prompts/loader.ts';
 
 export interface SystemPromptContext {
   projectId?: number;
@@ -88,8 +88,8 @@ const DOMAIN_FALLBACK_GUIDELINES: Record<SkillDomain, string> = {
 // ── Prompt builders ─────────────────────────────────────────────────────────
 
 function buildGlobalPrompt(): string {
-  const soul = loadPrompt('soul');
-  return `${soul}
+  const identityAndRules = loadSoulAndRule();
+  return `${identityAndRules}
 
 ---
 
@@ -112,9 +112,9 @@ function buildProjectPrompt(context: SystemPromptContext): string {
   const {projectId, projectName, projectDomain} = context;
 
   const domainSection = buildDomainSection(projectDomain);
-  const soul = loadPrompt('soul');
+  const identityAndRules = loadSoulAndRule();
 
-  return `${soul}
+  return `${identityAndRules}
 
 ---
 

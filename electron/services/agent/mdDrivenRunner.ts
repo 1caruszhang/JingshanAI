@@ -24,7 +24,7 @@
  * tool_call 循环（toolCallLoop）的接入在 #63。
  */
 import {getSkill} from './skillRegistry.ts';
-import {loadPrompt} from '../../prompts/loader.ts';
+import {loadSoulAndRule} from '../../prompts/loader.ts';
 import {
   buildEvidencePack as buildEvidencePackDefault,
   formatEvidence,
@@ -278,7 +278,7 @@ export interface MdDrivenRunOptions {
   validateFn?: ValidateFn;
   /** 注入 SKILL.md 正文加载（默认 getSkill(skillDir).body）。 */
   loadSkillBody?: (skillDir: string) => string;
-  /** 注入 soul 身份文本加载（默认 loadPrompt('soul')）。 */
+  /** 注入 soul 身份文本加载（默认 loadSoulAndRule()，含 soul + rule）。 */
   loadSoul?: () => string;
   // ── tool_call 循环接线（#63）─────────────────────────────────────────────
   /** 工具执行上下文（DB 依赖注入）。默认从 articleRepository/claimParsingService 构造。 */
@@ -321,7 +321,7 @@ export async function runMdDrivenSkill(
   opts: MdDrivenRunOptions,
 ): Promise<MdDrivenRunResult> {
   const loadSkillBody = opts.loadSkillBody ?? ((dir) => getSkill(dir)?.body ?? '');
-  const loadSoul = opts.loadSoul ?? (() => loadPrompt('soul'));
+  const loadSoul = opts.loadSoul ?? (() => loadSoulAndRule());
   const validateFn = opts.validateFn ?? SKILL_DIR_TO_VALIDATE[skillDir];
   const buildEvidencePack = opts.buildEvidencePack ?? buildEvidencePackDefault;
   const chatFn = opts.chatFn ??

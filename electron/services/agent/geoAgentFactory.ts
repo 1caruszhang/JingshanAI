@@ -8,7 +8,7 @@ import {askQuestion} from '../ragService.ts';
 import {embedText} from '../embedding.ts';
 import {getDb} from '../../db/connection.ts';
 import {buildSystemPrompt, getFactTypesForDomain} from './geoAgentSystemPrompt.ts';
-import {loadPrompt} from '../../prompts/loader.ts';
+import {loadPrompt, loadSoulAndRule} from '../../prompts/loader.ts';
 import {executeWithGuard, type GuardedToolCallOptions} from './toolGuard.ts';
 import {generateQuestions} from '../article/questionPoolService.ts';
 import {discoverSources} from '../article/sourceDiscoveryService.ts';
@@ -315,7 +315,7 @@ export function createGeoAgent(projectId?: number, toolCtx: AgentToolContext = {
       const response = await model.invoke([
         {
           role: 'system',
-          content: `${loadPrompt('soul')}\n\n${loadPrompt('qa')}`,
+          content: `${loadSoulAndRule()}\n\n${loadPrompt('qa')}`,
         },
         {role: 'user', content: input.query},
       ]);

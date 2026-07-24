@@ -125,3 +125,22 @@ export function stripFrontmatter(content: string): string {
 export function loadPromptBody(name: string): string {
   return stripFrontmatter(loadPrompt(name));
 }
+
+/**
+ * 加载 soul.md（身份 + 语气）+ rule.md（全局硬约束）的组合 prompt。
+ *
+ * #68 rule.md 拆分后，soul.md 仅保留身份/语气（CEO 注入），rule.md 包含
+ * 能力边界等全局硬约束（全员注入）。绝大多数注入点需要两者同时出现，
+ * 此 helper 避免每个调用点手动拼接。
+ *
+ * 若 rule.md 不存在（尚未创建或 userData 未覆盖），仅返回 soul，不抛错。
+ */
+export function loadSoulAndRule(): string {
+  const soul = loadPrompt('soul');
+  try {
+    const rule = loadPrompt('rule');
+    return `${soul}\n\n${rule}`;
+  } catch {
+    return soul;
+  }
+}

@@ -83,6 +83,7 @@ import {
 } from '../services/article/sourceDiscoveryService.ts';
 import {runMdDrivenSkill} from '../services/agent/mdDrivenRunner.ts';
 import {runMinimalAgentTask} from '../services/agent/geoAgentRuntime.ts';
+import {runDeepAgentTask} from '../services/agent/geoAgentDeepAgentRuntime.ts';
 import {extractFacts} from '../services/facts/factExtractionService.ts';
 import {runFactOntologySkill} from '../services/facts/factOntologySkill.ts';
 import {confirmFacts, rejectFacts, modifyAndConfirm} from '../services/facts/factReviewService.ts';
@@ -435,7 +436,8 @@ export function registerIpcHandlers() {
 
   createHandler('agentTask:run', async (params) => {
     const validated = AgentTaskRunSchema.parse(params);
-    return runMinimalAgentTask(validated.userGoal, {
+    // #75: Wave 1 底座接入 — 切到 createDeepAgent 路径
+    return runDeepAgentTask(validated.userGoal, {
       sessionId: validated.sessionId,
       projectId: validated.projectId,
       title: validated.title,
