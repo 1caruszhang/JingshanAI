@@ -12,3 +12,17 @@ coverage/
 docs
 test
 doc
+
+# Local agent / tool caches (not source)
+.claude/worktrees/
+.zcode/
+
+# Vendored external skill library — kept as a local reference copy only.
+# Runtime consumes skills/geo-* instead; geo_skills/ is a duplicate of the
+# upstream GEOlyAI/geo repo and not imported by any code.
+geo_skills/
+
+# Reference & sample content (binary templates, persona drafts — not source)
+template/
+skills/geo客户报告生成器/
+xiaojing.md

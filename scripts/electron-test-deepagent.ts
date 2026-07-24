@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {setApp} from '../electron/utils/paths.ts';
 import {getDb} from '../electron/db/connection.ts';
 import {indexEntry} from '../electron/services/indexingService.ts';
-import {runMinimalAgentTask} from '../electron/services/agent/geoAgentRuntime.ts';
+import {runDeepAgentTask} from '../electron/services/agent/geoAgentDeepAgentRuntime.ts';
 
 const testDir = mkdtempSync(join(tmpdir(), 'nai-agent-deepagent-e-'));
 
@@ -42,7 +42,7 @@ async function main() {
     throw new Error('Knowledge indexing failed or produced no chunks');
   }
 
-  const task = await runMinimalAgentTask('GEO Agent 是什么公司开发的？总部在哪里？', {
+  const task = await runDeepAgentTask('GEO Agent 是什么公司开发的？总部在哪里？', {
     projectId,
     title: 'DeepAgent 验证问题',
   });
@@ -70,7 +70,7 @@ async function main() {
   console.log('✅ Project-aware DeepAgent test passed');
 
   // 2. 全局闲聊模式（无项目）
-  const globalTask = await runMinimalAgentTask('GEO 是什么？');
+  const globalTask = await runDeepAgentTask('GEO 是什么？');
   console.log('Global task result:', {
     id: globalTask.id,
     status: globalTask.status,

@@ -16,9 +16,8 @@ import {
 } from '../electron/services/agent/toolGuard.ts';
 import {loadAllSkills, _resetCache} from '../electron/services/agent/skillRegistry.ts';
 import {
-  buildSystemPrompt,
   getFactTypesForDomain,
-} from '../electron/services/agent/geoAgentSystemPrompt.ts';
+} from '../electron/services/agent/geoAgentFactory.ts';
 import {
   setSnapshotProviderForTests,
   resetSnapshotProviderForTests,
@@ -156,49 +155,7 @@ check('#30 evaluateToolRisk uses SKILL.md risk_level for known skills', () => {
   }
 });
 
-// ── #31 geoAgentSystemPrompt ─────────────────────────────────────────────────
-
-check('#31 buildSystemPrompt(null) returns global prompt', () => {
-  const prompt = buildSystemPrompt({});
-  if (!prompt.includes('Global Chat') && !prompt.includes('未选择')) {
-    throw new Error('global prompt missing expected marker');
-  }
-});
-
-check('#31 buildSystemPrompt(local_service) includes local guidelines', () => {
-  const prompt = buildSystemPrompt({projectId: 1, projectName: 'Test', projectDomain: 'local_service'});
-  if (!prompt.includes('local_service')) {
-    throw new Error('local_service prompt missing domain marker');
-  }
-  if (!prompt.includes('NAP') && !prompt.includes('Name / Address / Phone')) {
-    throw new Error('local_service prompt missing NAP guideline');
-  }
-});
-
-check('#31 buildSystemPrompt(saas) includes SaaS guidelines', () => {
-  const prompt = buildSystemPrompt({projectId: 1, projectDomain: 'saas'});
-  if (!prompt.includes('saas') && !prompt.includes('SaaS')) {
-    throw new Error('saas prompt missing domain marker');
-  }
-  if (!prompt.includes('SoftwareApplication') && !prompt.includes('产品功能')) {
-    throw new Error('saas prompt missing SaaS-specific guideline');
-  }
-});
-
-check('#31 buildSystemPrompt(null domain) does not throw', () => {
-  const prompt = buildSystemPrompt({projectId: 1, projectDomain: null});
-  if (!prompt.includes('通用')) {
-    throw new Error('null-domain prompt missing generic marker');
-  }
-});
-
-check('#31 buildSystemPrompt no longer returns placeholder stub', () => {
-  const prompt = buildSystemPrompt({projectId: 1});
-  if (prompt.includes('placeholder system prompt')) {
-    throw new Error('placeholder stub still present');
-  }
-});
-
+// ── #31 getFactTypesForDomain ─────────────────────────────────────────────────
 check('#31 getFactTypesForDomain(local_service) includes detailed_address', () => {
   const types = getFactTypesForDomain('local_service');
   if (!types || !types.includes('detailed_address')) {
