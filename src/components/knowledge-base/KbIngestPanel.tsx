@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { knowledgeBaseService } from '@/services/knowledgeBaseService';
 import { projectService } from '@/services/projectService';
 import { factService } from '@/services/factService';
+import { triggerAutoExtract } from '@/services/factAutoExtract';
 import { dialogApi, factApi, dbApi } from '@/lib/electron-api';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppState } from '@/context/AppStateContext';
@@ -168,7 +169,9 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
       setStatus('success');
       setTitle('');
       setContent('');
-      loadData();
+      await loadData();
+      // #105: 上传成功后后台自动抽取事实，完成后再次刷新 UI；不阻塞交互。
+      runAutoExtractInBackground();
     } catch {
       setStatus('error');
     }
@@ -195,10 +198,25 @@ export default function KbIngestPanel({ projectId }: KbIngestPanelProps) {
       setStatus('success');
       setTitle('');
       setFilePath('');
-      loadData();
+      await loadData();
+      // #105: 上传成功后后台自动抽取事实，完成后再次刷新 UI；不阻塞交互。
+      runAutoExtractInBackground();
     } catch {
       setStatus('error');
     }
+  };
+
+  /**
+   * #105: 后台触发自动事实抽取——抽取完成（成功或失败）后再次 `loadData()`
+   * 刷新事实列表。`triggerAutoExtract` 内置重试且不会抛出，这里只兜底 catch
+   * 以防契约变更导致未处理的 promise rejection。
+   */
+  const runAutoExtractInBackground = () => {
+    triggerAutoExtract(projectId, {
+      onFailure: (message) => toast.error(t.kbAutoExtractFailed ?? message),
+    })
+      .then(() => loadData())
+      .catch((err) => console.error('[autoExtract] unexpected rejection:', err));
   };
 
   const handleDeleteEntry = async (entry: KnowledgeEntry) => {

@@ -10,6 +10,8 @@ import {useView} from '@/context/ViewContext';
 import {useAppState} from '@/context/AppStateContext';
 import {projectService} from '@/services/projectService';
 import {knowledgeBaseService} from '@/services/knowledgeBaseService';
+import {triggerAutoExtract} from '@/services/factAutoExtract';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
 import {
@@ -168,13 +170,21 @@ export default function KbCreateView() {
         setCurrentProject(project);
       }
       triggerRefreshProjects();
+
+      // #105: 所有条目索引完成后、导航前，自动触发一次全量事实抽取。
+      // 抽取失败不影响上传结果——只通过 toast 提示可手动重试。
+      setStatusMessage(t.kbAutoExtracting ?? '正在自动抽取企业事实...');
+      await triggerAutoExtract(projectId, {
+        onFailure: (message) => toast.error(t.kbAutoExtractFailed ?? message),
+      });
+
       navigateTo('kbIngest', {projectId});
     } catch (err) {
       console.error('Ingestion failed:', err);
       setError(err instanceof Error ? err.message : '创建失败');
       setStep(1);
     }
-  }, [domain, formData, files, navigateTo, projectDescription, projectName, setCurrentProject, textContent, triggerRefreshProjects]);
+  }, [domain, formData, files, navigateTo, projectDescription, projectName, setCurrentProject, t, textContent, triggerRefreshProjects]);
 
   const renderStep1 = () => (
     <div className="space-y-6">
